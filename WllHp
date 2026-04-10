@@ -1,514 +1,721 @@
--- zYnFlick | LocalScript
+-- LocalScript inside StarterPlayerScripts or StarterCharacterScripts
 
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local PathfindingService = game:GetService("PathfindingService")
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
-local wallhopEnabled = false
-local infiniteJumpEnabled = false
-local isDarkMode = false
-local isArabic = false
-local jumpCount = 0
-local lastJumpTime = 0
-local isWallhopping = false
-local proximityOffset = 1
-
-local strings = {
-	en = { wallhop="Wall Hop", infjump="Infinite Jump", enabled="ENABLED", disabled="DISABLED", proximity="Wall Proximity", reset="Reset", drag="Drag" },
-	ar = { wallhop="قفز الجدار", infjump="قفز لا نهائي", enabled="مفعّل", disabled="معطّل", proximity="قرب الجدار", reset="إعادة", drag="سحب" }
+-- ══════════════════════════════════════════
+--              STATE
+-- ══════════════════════════════════════════
+local State = {
+	FlickOn   = false,
+	AutoOn    = false,
+	FacingOn  = false,
+	JukeOn    = false,
+	Target    = nil,
+	Mode      = "idle", -- "idle" | "chasing" | "fleeing"
+	JukeActive= false,
 }
-local function T(k) return isArabic and strings.ar[k] or strings.en[k] end
 
--- Colors
-local function LM() return {
-	bg1=Color3.fromRGB(228,236,255), bg2=Color3.fromRGB(208,222,255),
-	bar1=Color3.fromRGB(75,105,225), bar2=Color3.fromRGB(45,70,175),
-	btn1=Color3.fromRGB(85,115,220), btn2=Color3.fromRGB(52,75,172),
-	btnShd=Color3.fromRGB(28,48,118),
-	onBtn1=Color3.fromRGB(42,185,100), onBtn2=Color3.fromRGB(25,138,65), onShd=Color3.fromRGB(12,85,42),
-	stroke=Color3.fromRGB(168,185,230), track=Color3.fromRGB(188,205,240),
-	fill1=Color3.fromRGB(95,128,228), fill2=Color3.fromRGB(55,82,172),
-	knob=Color3.fromRGB(255,255,255), knobStr=Color3.fromRGB(72,98,188),
-	proxTxt=Color3.fromRGB(55,75,162), infoTxt=Color3.fromRGB(105,128,188),
-	shd=Color3.fromRGB(80,105,192),
-} end
-local function DM() return {
-	bg1=Color3.fromRGB(12,16,36), bg2=Color3.fromRGB(8,12,28),
-	bar1=Color3.fromRGB(32,45,108), bar2=Color3.fromRGB(18,28,78),
-	btn1=Color3.fromRGB(25,38,98), btn2=Color3.fromRGB(15,25,72),
-	btnShd=Color3.fromRGB(5,8,32),
-	onBtn1=Color3.fromRGB(38,172,92), onBtn2=Color3.fromRGB(22,128,60), onShd=Color3.fromRGB(8,72,38),
-	stroke=Color3.fromRGB(38,55,118), track=Color3.fromRGB(18,28,65),
-	fill1=Color3.fromRGB(52,82,175), fill2=Color3.fromRGB(32,55,138),
-	knob=Color3.fromRGB(28,38,85), knobStr=Color3.fromRGB(85,118,225),
-	proxTxt=Color3.fromRGB(102,135,218), infoTxt=Color3.fromRGB(62,88,148),
-	shd=Color3.fromRGB(5,8,22),
-} end
-local function C() return isDarkMode and DM() or LM() end
+-- ══════════════════════════════════════════
+--              GUI BUILD
+-- ══════════════════════════════════════════
+local function buildGUI()
+	local existing = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("AdvancedMenu")
+	if existing then existing:Destroy() end
 
--- GUI root
-local sg = Instance.new("ScreenGui")
-sg.Name="zYnFlick"; sg.ResetOnSpawn=false; sg.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
-local ok=pcall(function() sg.Parent=game:GetService("CoreGui") end)
-if not ok then sg.Parent=player.PlayerGui end
-sg.AncestryChanged:Connect(function()
-	if not sg.Parent then
-		local s=pcall(function() sg.Parent=game:GetService("CoreGui") end)
-		if not s then sg.Parent=player.PlayerGui end
+	local ScreenGui = Instance.new("ScreenGui")
+	ScreenGui.Name = "AdvancedMenu"
+	ScreenGui.ResetOnSpawn = false
+	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	ScreenGui.Parent = LocalPlayer.PlayerGui
+
+	-- Main Frame
+	local Main = Instance.new("Frame")
+	Main.Name = "Main"
+	Main.Size = UDim2.new(0, 200, 0, 300)
+	Main.Position = UDim2.new(0.5, -100, 0.5, -150)
+	Main.BackgroundColor3 = Color3.fromRGB(42, 42, 42)
+	Main.BorderSizePixel = 0
+	Main.Active = true
+	Main.Draggable = true
+	Main.Parent = ScreenGui
+
+	local MainCorner = Instance.new("UICorner")
+	MainCorner.CornerRadius = UDim.new(0, 16)
+	MainCorner.Parent = Main
+
+	local MainGrad = Instance.new("UIGradient")
+	MainGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(42,42,42)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(0,0,0)),
+	})
+	MainGrad.Rotation = 90
+	MainGrad.Parent = Main
+
+	local MainStroke = Instance.new("UIStroke")
+	MainStroke.Color = Color3.fromRGB(139, 0, 0)
+	MainStroke.Thickness = 1.5
+	MainStroke.Parent = Main
+
+	-- Outer glow (UIStroke on a transparent background frame)
+	local GlowFrame = Instance.new("Frame")
+	GlowFrame.Size = UDim2.new(1, 14, 1, 14)
+	GlowFrame.Position = UDim2.new(0, -7, 0, -7)
+	GlowFrame.BackgroundTransparency = 1
+	GlowFrame.ZIndex = 0
+	GlowFrame.Parent = Main
+	local GlowStroke = Instance.new("UIStroke")
+	GlowStroke.Color = Color3.fromRGB(180, 0, 0)
+	GlowStroke.Thickness = 3
+	GlowStroke.Transparency = 0.7
+	GlowStroke.Parent = GlowFrame
+	local GlowCorner = Instance.new("UICorner")
+	GlowCorner.CornerRadius = UDim.new(0, 20)
+	GlowCorner.Parent = GlowFrame
+
+	-- Helper: Pill Button
+	local function makePillButton(name, labelTop, labelMain, labelBottom, sizeX, sizeY, posX, posY)
+		local btn = Instance.new("TextButton")
+		btn.Name = name
+		btn.Size = UDim2.new(0, sizeX, 0, sizeY)
+		btn.Position = UDim2.new(0, posX, 0, posY)
+		btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+		btn.AutoButtonColor = false
+		btn.BorderSizePixel = 0
+		btn.Text = ""
+		btn.Parent = Main
+
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(1, 0)
+		c.Parent = btn
+
+		local s = Instance.new("UIStroke")
+		s.Color = Color3.fromRGB(255, 255, 255)
+		s.Thickness = 1
+		s.Parent = btn
+
+		local g = Instance.new("UIGradient")
+		g.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(90,90,90)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(50,50,50)),
+		})
+		g.Rotation = 90
+		g.Parent = btn
+
+		-- Sub label (top)
+		local sub = Instance.new("TextLabel")
+		sub.Size = UDim2.new(1, 0, 0.3, 0)
+		sub.Position = UDim2.new(0, 0, 0, 0)
+		sub.BackgroundTransparency = 1
+		sub.Text = labelTop
+		sub.TextColor3 = Color3.fromRGB(170, 170, 170)
+		sub.TextScaled = true
+		sub.Font = Enum.Font.Garamond
+		sub.Parent = btn
+
+		-- Main label
+		local main_lbl = Instance.new("TextLabel")
+		main_lbl.Name = "MainLabel"
+		main_lbl.Size = UDim2.new(1, 0, 0.4, 0)
+		main_lbl.Position = UDim2.new(0, 0, 0.3, 0)
+		main_lbl.BackgroundTransparency = 1
+		main_lbl.Text = labelMain
+		main_lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+		main_lbl.TextScaled = true
+		main_lbl.Font = Enum.Font.Garamond
+		main_lbl.Parent = btn
+
+		-- Bottom label
+		local bot = Instance.new("TextLabel")
+		bot.Name = "BotLabel"
+		bot.Size = UDim2.new(1, 0, 0.3, 0)
+		bot.Position = UDim2.new(0, 0, 0.7, 0)
+		bot.BackgroundTransparency = 1
+		bot.Text = labelBottom
+		bot.TextColor3 = Color3.fromRGB(255, 255, 255)
+		bot.TextScaled = true
+		bot.Font = Enum.Font.Garamond
+		bot.Parent = btn
+
+		-- Hover tween
+		btn.MouseEnter:Connect(function()
+			TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(100,100,100)}):Play()
+		end)
+		btn.MouseLeave:Connect(function()
+			TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(70,70,70)}):Play()
+		end)
+
+		return btn
 	end
-end)
 
--- Main frame
-local mf = Instance.new("Frame", sg)
-mf.Size=UDim2.new(0,310,0,310); mf.Position=UDim2.new(0.5,-155,0.5,-155)
-mf.BackgroundColor3=LM().bg1; mf.BorderSizePixel=0; mf.ClipsDescendants=false
-local mfC=Instance.new("UICorner",mf); mfC.CornerRadius=UDim.new(0,22)
-local mfStr=Instance.new("UIStroke",mf); mfStr.Color=LM().stroke; mfStr.Thickness=1.5
+	-- Close Button
+	local CloseBtn = Instance.new("TextButton")
+	CloseBtn.Name = "CloseBtn"
+	CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+	CloseBtn.Position = UDim2.new(1, -36, 0, 8)
+	CloseBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+	CloseBtn.BorderSizePixel = 0
+	CloseBtn.Text = "X"
+	CloseBtn.TextColor3 = Color3.fromRGB(255, 0, 0)
+	CloseBtn.TextScaled = true
+	CloseBtn.Font = Enum.Font.GothamBold
+	CloseBtn.AutoButtonColor = false
+	CloseBtn.Parent = Main
+	local CloseCorner = Instance.new("UICorner")
+	CloseCorner.CornerRadius = UDim.new(0, 6)
+	CloseCorner.Parent = CloseBtn
+	local CloseGrad = Instance.new("UIGradient")
+	CloseGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(70,70,70)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(35,35,35)),
+	})
+	CloseGrad.Rotation = 90
+	CloseGrad.Parent = CloseBtn
+	CloseBtn.MouseEnter:Connect(function()
+		TweenService:Create(CloseBtn, TweenInfo.new(0.15), {TextColor3 = Color3.fromRGB(255,80,80)}):Play()
+	end)
+	CloseBtn.MouseLeave:Connect(function()
+		TweenService:Create(CloseBtn, TweenInfo.new(0.15), {TextColor3 = Color3.fromRGB(255,0,0)}):Play()
+	end)
 
-local bgGrad=Instance.new("UIGradient",mf)
-bgGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,LM().bg1),ColorSequenceKeypoint.new(1,LM().bg2)})
-bgGrad.Rotation=135
+	-- Auto Button
+	local AutoBtn = makePillButton("AutoBtn", "(auto)", "Auto:Off", "", 120, 48, 14, 12)
 
-local shd=Instance.new("Frame",mf)
-shd.Size=UDim2.new(1,16,1,16); shd.Position=UDim2.new(0,-8,0,8)
-shd.BackgroundColor3=LM().shd; shd.BackgroundTransparency=0.7; shd.BorderSizePixel=0; shd.ZIndex=0
-Instance.new("UICorner",shd).CornerRadius=UDim.new(0,26)
+	-- Row: Juke + Facing
+	local JukeBtn    = makePillButton("JukeBtn",   "(juke)",   "Juke",   "Off", 84, 52, 14,  72)
+	local FacingBtn  = makePillButton("FacingBtn", "(facing)", "Facing", "Off", 84, 52, 102, 72)
 
--- Title bar
-local tb=Instance.new("Frame",mf)
-tb.Size=UDim2.new(1,0,0,52); tb.BackgroundColor3=LM().bar1; tb.BorderSizePixel=0; tb.ZIndex=2
-Instance.new("UICorner",tb).CornerRadius=UDim.new(0,22)
-local tbFix=Instance.new("Frame",tb); tbFix.Size=UDim2.new(1,0,0,22); tbFix.Position=UDim2.new(0,0,1,-22)
-tbFix.BackgroundColor3=LM().bar1; tbFix.BorderSizePixel=0; tbFix.ZIndex=2
-local tbGrad=Instance.new("UIGradient",tb)
-tbGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,LM().bar1),ColorSequenceKeypoint.new(1,LM().bar2)}); tbGrad.Rotation=90
+	-- Flick Big Button
+	local FlickBtn = makePillButton("FlickBtn", "(flick)", "Flick:Off", "Off", 172, 64, 14, 136)
 
-local titleLbl=Instance.new("TextLabel",tb)
-titleLbl.Size=UDim2.new(1,-112,1,0); titleLbl.Position=UDim2.new(0,16,0,0)
-titleLbl.BackgroundTransparency=1; titleLbl.Text="zYnFlick"
-titleLbl.TextColor3=Color3.fromRGB(255,255,255); titleLbl.TextSize=19
-titleLbl.Font=Enum.Font.GothamBold; titleLbl.TextXAlignment=Enum.TextXAlignment.Left; titleLbl.ZIndex=3
+	-- Target section
+	local TargetLabel = Instance.new("TextLabel")
+	TargetLabel.Name = "TargetLabel"
+	TargetLabel.Size = UDim2.new(1, -20, 0, 20)
+	TargetLabel.Position = UDim2.new(0, 10, 0, 212)
+	TargetLabel.BackgroundTransparency = 1
+	TargetLabel.Text = "Target"
+	TargetLabel.TextColor3 = Color3.fromRGB(139, 0, 0)
+	TargetLabel.Font = Enum.Font.Garamond
+	TargetLabel.TextScaled = true
+	TargetLabel.Parent = Main
 
--- ══════════════════════════════════════
--- GLOBE — built from frames
--- ══════════════════════════════════════
-local gH=Instance.new("Frame",tb)
-gH.Size=UDim2.new(0,30,0,30); gH.Position=UDim2.new(1,-74,0.5,-15)
-gH.BackgroundTransparency=1; gH.ZIndex=4; gH.ClipsDescendants=false
+	local UsernameLabel = Instance.new("TextLabel")
+	UsernameLabel.Name = "UsernameLabel"
+	UsernameLabel.Size = UDim2.new(1, -20, 0, 20)
+	UsernameLabel.Position = UDim2.new(0, 10, 0, 232)
+	UsernameLabel.BackgroundTransparency = 1
+	UsernameLabel.Text = "(username)"
+	UsernameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	UsernameLabel.Font = Enum.Font.Garamond
+	UsernameLabel.TextScaled = true
+	UsernameLabel.Parent = Main
 
-local gCirc=Instance.new("Frame",gH)
-gCirc.Size=UDim2.new(0,30,0,30); gCirc.BackgroundColor3=Color3.fromRGB(48,130,215)
-gCirc.BorderSizePixel=0; gCirc.ZIndex=4
-Instance.new("UICorner",gCirc).CornerRadius=UDim.new(1,0)
-local gCircStr=Instance.new("UIStroke",gCirc); gCircStr.Color=Color3.fromRGB(200,228,255); gCircStr.Thickness=1.5
+	-- Drop shadow on username label
+	local Shadow = Instance.new("UIStroke")
+	Shadow.Color = Color3.fromRGB(0,0,0)
+	Shadow.Thickness = 1
+	Shadow.Transparency = 0.5
+	Shadow.Parent = UsernameLabel
 
--- continents: 3 blobs
-local function gBlob(px,py,sw,sh)
-	local b=Instance.new("Frame",gCirc); b.Size=UDim2.new(0,sw,0,sh)
-	b.Position=UDim2.new(0,px,0,py); b.BackgroundColor3=Color3.fromRGB(255,255,255)
-	b.BackgroundTransparency=0.15; b.BorderSizePixel=0; b.ZIndex=5
-	Instance.new("UICorner",b).CornerRadius=UDim.new(0,3)
-end
-gBlob(4,7,8,7); gBlob(14,5,7,9); gBlob(18,16,8,6); gBlob(5,17,7,5); gBlob(10,21,6,4)
+	-- Status label
+	local StatusLabel = Instance.new("TextLabel")
+	StatusLabel.Name = "StatusLabel"
+	StatusLabel.Size = UDim2.new(1, -20, 0, 22)
+	StatusLabel.Position = UDim2.new(0, 10, 0, 264)
+	StatusLabel.BackgroundTransparency = 1
+	StatusLabel.Text = "."
+	StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+	StatusLabel.Font = Enum.Font.Garamond
+	StatusLabel.TextScaled = true
+	StatusLabel.Parent = Main
 
--- grid lines
-local function gLine(x,y,w,h,alpha)
-	local l=Instance.new("Frame",gCirc); l.Size=UDim2.new(0,w,0,h)
-	l.Position=UDim2.new(0,x,0,y); l.BackgroundColor3=Color3.fromRGB(200,228,255)
-	l.BackgroundTransparency=alpha or 0.4; l.BorderSizePixel=0; l.ZIndex=6
-	Instance.new("UICorner",l).CornerRadius=UDim.new(0,1)
-end
-gLine(14,2,2,26); gLine(2,14,26,2); gLine(5,8,20,1,0.55); gLine(5,20,20,1,0.55)
-
-local globeBtn=Instance.new("TextButton",gH)
-globeBtn.Size=UDim2.new(1,0,1,0); globeBtn.BackgroundTransparency=1
-globeBtn.Text=""; globeBtn.ZIndex=9
-
--- ══════════════════════════════════════
--- SUN — built from frames
--- ══════════════════════════════════════
-local sH=Instance.new("Frame",tb)
-sH.Size=UDim2.new(0,30,0,30); sH.Position=UDim2.new(1,-38,0.5,-15)
-sH.BackgroundTransparency=1; sH.ZIndex=4; sH.ClipsDescendants=false
-
--- rays
-for i=0,7 do
-	local ang=math.rad(i*45)
-	local rx,ry=math.sin(ang),- math.cos(ang)
-	local r=Instance.new("Frame",sH)
-	r.Size=UDim2.new(0,2,0,7); r.AnchorPoint=Vector2.new(0.5,0.5)
-	r.Position=UDim2.new(0,15+rx*12,0,15+ry*12)
-	r.BackgroundColor3=Color3.fromRGB(255,255,255); r.BorderSizePixel=0; r.Rotation=i*45; r.ZIndex=4
-	Instance.new("UICorner",r).CornerRadius=UDim.new(0,1)
-end
--- core
-local sCore=Instance.new("Frame",sH)
-sCore.Size=UDim2.new(0,14,0,14); sCore.Position=UDim2.new(0.5,-7,0.5,-7)
-sCore.BackgroundColor3=Color3.fromRGB(255,255,255); sCore.BorderSizePixel=0; sCore.ZIndex=5
-Instance.new("UICorner",sCore).CornerRadius=UDim.new(1,0)
-
--- ══════════════════════════════════════
--- MOON — built from frames, hidden
--- ══════════════════════════════════════
-local mH=Instance.new("Frame",tb)
-mH.Size=UDim2.new(0,30,0,30); mH.Position=UDim2.new(1,-38,0.5,-15)
-mH.BackgroundTransparency=1; mH.ZIndex=4; mH.ClipsDescendants=false; mH.Visible=false
-
-local mBig=Instance.new("Frame",mH)
-mBig.Size=UDim2.new(0,22,0,22); mBig.Position=UDim2.new(0,3,0,4)
-mBig.BackgroundColor3=Color3.fromRGB(255,255,255); mBig.BorderSizePixel=0; mBig.ZIndex=4
-Instance.new("UICorner",mBig).CornerRadius=UDim.new(1,0)
-
-local mCut=Instance.new("Frame",mH)
-mCut.Size=UDim2.new(0,18,0,18); mCut.Position=UDim2.new(0,9,0,1)
-mCut.BorderSizePixel=0; mCut.ZIndex=5
-Instance.new("UICorner",mCut).CornerRadius=UDim.new(1,0)
--- mCut color set by applyTheme
-
-local mS1=Instance.new("Frame",mH); mS1.Size=UDim2.new(0,4,0,4); mS1.Position=UDim2.new(0,22,0,3)
-mS1.BackgroundColor3=Color3.fromRGB(255,255,255); mS1.BorderSizePixel=0; mS1.ZIndex=4
-Instance.new("UICorner",mS1).CornerRadius=UDim.new(1,0)
-local mS2=Instance.new("Frame",mH); mS2.Size=UDim2.new(0,3,0,3); mS2.Position=UDim2.new(0,24,0,14)
-mS2.BackgroundColor3=Color3.fromRGB(255,255,255); mS2.BorderSizePixel=0; mS2.ZIndex=4
-Instance.new("UICorner",mS2).CornerRadius=UDim.new(1,0)
-
-local smBtn=Instance.new("TextButton",tb)
-smBtn.Size=UDim2.new(0,30,0,30); smBtn.Position=UDim2.new(1,-38,0.5,-15)
-smBtn.BackgroundTransparency=1; smBtn.Text=""; smBtn.ZIndex=10
-
--- ══════════════════════════════════════
--- CONTENT
--- ══════════════════════════════════════
-local cf=Instance.new("Frame",mf)
-cf.Size=UDim2.new(1,-26,1,-64); cf.Position=UDim2.new(0,13,0,58)
-cf.BackgroundTransparency=1; cf.ZIndex=2
-
--- helper: single 3D toggle button
-local function makeBtn(parent, py, h, label)
-	local wrap=Instance.new("Frame",parent)
-	wrap.Size=UDim2.new(1,0,0,h); wrap.Position=UDim2.new(0,0,0,py)
-	wrap.BackgroundTransparency=1
-
-	local shd2=Instance.new("Frame",wrap)
-	shd2.Size=UDim2.new(1,0,1,5); shd2.Position=UDim2.new(0,0,0,4)
-	shd2.BackgroundColor3=LM().btnShd; shd2.BorderSizePixel=0; shd2.ZIndex=2
-	Instance.new("UICorner",shd2).CornerRadius=UDim.new(0,13)
-
-	local btn=Instance.new("TextButton",wrap)
-	btn.Size=UDim2.new(1,0,1,0); btn.Position=UDim2.new(0,0,0,0)
-	btn.BackgroundColor3=LM().btn1; btn.BorderSizePixel=0; btn.Text=""; btn.ZIndex=3
-	Instance.new("UICorner",btn).CornerRadius=UDim.new(0,13)
-
-	local grad=Instance.new("UIGradient",btn)
-	grad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,LM().btn1),ColorSequenceKeypoint.new(1,LM().btn2)}); grad.Rotation=90
-
-	-- indicator dot
-	local dot=Instance.new("Frame",btn)
-	dot.Size=UDim2.new(0,9,0,9); dot.Position=UDim2.new(0,12,0.5,-4)
-	dot.BackgroundColor3=Color3.fromRGB(145,158,200); dot.BorderSizePixel=0; dot.ZIndex=4
-	Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
-
-	local lName=Instance.new("TextLabel",btn)
-	lName.Size=UDim2.new(1,-28,0.52,0); lName.Position=UDim2.new(0,27,0,0)
-	lName.BackgroundTransparency=1; lName.Text=label
-	lName.TextColor3=Color3.fromRGB(255,255,255); lName.TextSize=14
-	lName.Font=Enum.Font.GothamBold; lName.TextXAlignment=Enum.TextXAlignment.Left; lName.ZIndex=4
-
-	local lStat=Instance.new("TextLabel",btn)
-	lStat.Size=UDim2.new(1,-28,0.48,0); lStat.Position=UDim2.new(0,27,0.52,0)
-	lStat.BackgroundTransparency=1; lStat.Text=T("disabled")
-	lStat.TextColor3=Color3.fromRGB(172,192,255); lStat.TextSize=12
-	lStat.Font=Enum.Font.Gotham; lStat.TextXAlignment=Enum.TextXAlignment.Left; lStat.ZIndex=4
-
-	return btn, shd2, grad, dot, lName, lStat, wrap
+	return {
+		ScreenGui     = ScreenGui,
+		Main          = Main,
+		AutoBtn       = AutoBtn,
+		JukeBtn       = JukeBtn,
+		FacingBtn     = FacingBtn,
+		FlickBtn      = FlickBtn,
+		CloseBtn      = CloseBtn,
+		TargetLabel   = TargetLabel,
+		UsernameLabel = UsernameLabel,
+		StatusLabel   = StatusLabel,
+	}
 end
 
-local whBtn, whShd, whGrad, whDot, whName, whStat, whWrap = makeBtn(cf, 2, 60, T("wallhop"))
-local ijBtn, ijShd, ijGrad, ijDot, ijName, ijStat, ijWrap = makeBtn(cf, 70, 60, T("infjump"))
+-- ══════════════════════════════════════════
+--              INIT GUI
+-- ══════════════════════════════════════════
+local GUI = buildGUI()
 
--- Prox label
-local proxLbl=Instance.new("TextLabel",cf)
-proxLbl.Size=UDim2.new(1,0,0,20); proxLbl.Position=UDim2.new(0,0,0,140)
-proxLbl.BackgroundTransparency=1; proxLbl.Text=T("proximity")..": "..proximityOffset.."m"
-proxLbl.TextColor3=LM().proxTxt; proxLbl.TextSize=12; proxLbl.Font=Enum.Font.GothamSemibold
-proxLbl.TextXAlignment=Enum.TextXAlignment.Left; proxLbl.ZIndex=3
-
--- Slider
-local slTrack=Instance.new("Frame",cf)
-slTrack.Size=UDim2.new(1,-74,0,28); slTrack.Position=UDim2.new(0,0,0,164)
-slTrack.BackgroundColor3=LM().track; slTrack.BorderSizePixel=0; slTrack.ZIndex=3
-Instance.new("UICorner",slTrack).CornerRadius=UDim.new(0,14)
-
-local slFill=Instance.new("Frame",slTrack)
-slFill.Size=UDim2.new(0.5,0,1,0); slFill.BackgroundColor3=LM().fill1
-slFill.BorderSizePixel=0; slFill.ZIndex=4
-Instance.new("UICorner",slFill).CornerRadius=UDim.new(0,14)
-local slFillG=Instance.new("UIGradient",slFill)
-slFillG.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,LM().fill1),ColorSequenceKeypoint.new(1,LM().fill2)}); slFillG.Rotation=0
-
-local slKnob=Instance.new("TextButton",slTrack)
-slKnob.Size=UDim2.new(0,28,0,28); slKnob.Position=UDim2.new(0.5,-14,0,0)
-slKnob.BackgroundColor3=LM().knob; slKnob.BorderSizePixel=0
-slKnob.Text=T("drag"); slKnob.TextColor3=LM().knobStr; slKnob.TextSize=8
-slKnob.Font=Enum.Font.GothamBold; slKnob.ZIndex=6
-Instance.new("UICorner",slKnob).CornerRadius=UDim.new(1,0)
-local slKStr=Instance.new("UIStroke",slKnob); slKStr.Color=LM().knobStr; slKStr.Thickness=1.8
-
-local slKShd=Instance.new("Frame",slKnob)
-slKShd.Size=UDim2.new(1,0,1,4); slKShd.Position=UDim2.new(0,0,0,2)
-slKShd.BackgroundColor3=LM().btnShd; slKShd.BackgroundTransparency=0.35; slKShd.BorderSizePixel=0; slKShd.ZIndex=5
-Instance.new("UICorner",slKShd).CornerRadius=UDim.new(1,0)
-
--- Reset btn
-local rstBtn=Instance.new("TextButton",cf)
-rstBtn.Size=UDim2.new(0,66,0,28); rstBtn.Position=UDim2.new(1,-66,0,164)
-rstBtn.BackgroundColor3=LM().btn1; rstBtn.BorderSizePixel=0
-rstBtn.Text=T("reset"); rstBtn.TextColor3=Color3.fromRGB(255,255,255)
-rstBtn.TextSize=12; rstBtn.Font=Enum.Font.GothamBold; rstBtn.ZIndex=3
-Instance.new("UICorner",rstBtn).CornerRadius=UDim.new(0,10)
-local rstGrad=Instance.new("UIGradient",rstBtn)
-rstGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,LM().btn1),ColorSequenceKeypoint.new(1,LM().btn2)}); rstGrad.Rotation=90
-local rstShd=Instance.new("Frame",rstBtn)
-rstShd.Size=UDim2.new(1,0,1,4); rstShd.Position=UDim2.new(0,0,0,3)
-rstShd.BackgroundColor3=LM().btnShd; rstShd.BorderSizePixel=0; rstShd.ZIndex=2
-Instance.new("UICorner",rstShd).CornerRadius=UDim.new(0,10)
-
-local infoLbl=Instance.new("TextLabel",cf)
-infoLbl.Size=UDim2.new(1,0,0,30); infoLbl.Position=UDim2.new(0,0,0,202)
-infoLbl.BackgroundTransparency=1; infoLbl.Text="Jump twice near a wall to wallhop"
-infoLbl.TextColor3=LM().infoTxt; infoLbl.TextSize=11; infoLbl.Font=Enum.Font.Gotham
-infoLbl.TextWrapped=true; infoLbl.TextXAlignment=Enum.TextXAlignment.Center; infoLbl.ZIndex=3
-
--- ══════════════════════════════════════
--- DRAG MAIN FRAME
--- ══════════════════════════════════════
-local dragging,dragStart,startPos=false,nil,nil
-tb.InputBegan:Connect(function(i)
-	if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-		dragging=true; dragStart=i.Position; startPos=mf.Position
-	end
-end)
-tb.InputEnded:Connect(function(i)
-	if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end
-end)
-UserInputService.InputChanged:Connect(function(i)
-	if dragging and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
-		local d=i.Position-dragStart
-		mf.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
-	end
-end)
-
--- ══════════════════════════════════════
--- THEME
--- ══════════════════════════════════════
-local function applyTheme()
-	local col=C()
-	mfStr.Color=col.stroke
-	bgGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.bg1),ColorSequenceKeypoint.new(1,col.bg2)})
-	mf.BackgroundColor3=col.bg1
-	shd.BackgroundColor3=col.shd
-	tbGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.bar1),ColorSequenceKeypoint.new(1,col.bar2)})
-	tb.BackgroundColor3=col.bar1; tbFix.BackgroundColor3=col.bar2
-	proxLbl.TextColor3=col.proxTxt; infoLbl.TextColor3=col.infoTxt
-	slTrack.BackgroundColor3=col.track
-	slFill.BackgroundColor3=col.fill1
-	slFillG.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.fill1),ColorSequenceKeypoint.new(1,col.fill2)})
-	slKnob.BackgroundColor3=col.knob; slKnob.TextColor3=col.knobStr; slKStr.Color=col.knobStr
-	slKShd.BackgroundColor3=col.btnShd
-	rstBtn.BackgroundColor3=col.btn1
-	rstGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.btn1),ColorSequenceKeypoint.new(1,col.btn2)})
-	rstShd.BackgroundColor3=col.btnShd
-
-	-- moon cut matches bar
-	mCut.BackgroundColor3=col.bar2
-	sH.Visible=not isDarkMode; mH.Visible=isDarkMode
-
-	-- buttons (only update if disabled)
-	if not wallhopEnabled then
-		whGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.btn1),ColorSequenceKeypoint.new(1,col.btn2)})
-		whShd.BackgroundColor3=col.btnShd
-	end
-	if not infiniteJumpEnabled then
-		ijGrad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.btn1),ColorSequenceKeypoint.new(1,col.btn2)})
-		ijShd.BackgroundColor3=col.btnShd
-	end
+-- ══════════════════════════════════════════
+--              HELPERS
+-- ══════════════════════════════════════════
+local function getCharacter()
+	return LocalPlayer.Character
 end
 
-smBtn.MouseButton1Click:Connect(function()
-	isDarkMode=not isDarkMode; applyTheme()
-end)
-
--- ══════════════════════════════════════
--- GLOBE SPIN
--- ══════════════════════════════════════
-local gSpinning=false
-globeBtn.MouseButton1Click:Connect(function()
-	if gSpinning then return end
-	gSpinning=true; isArabic=not isArabic
-	local tw=TweenService:Create(gH,TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Rotation=gH.Rotation+360})
-	tw:Play(); tw.Completed:Connect(function() gH.Rotation=0; gSpinning=false end)
-	whName.Text=T("wallhop"); whStat.Text=wallhopEnabled and T("enabled") or T("disabled")
-	ijName.Text=T("infjump"); ijStat.Text=infiniteJumpEnabled and T("enabled") or T("disabled")
-	proxLbl.Text=T("proximity")..": "..proximityOffset.."m"
-	rstBtn.Text=T("reset"); slKnob.Text=T("drag")
-	infoLbl.Text=isArabic and "اقفز مرتين قرب جدار لتنشيط القفزة" or "Jump twice near a wall to wallhop"
-end)
-
--- ══════════════════════════════════════
--- BUTTON STATE
--- ══════════════════════════════════════
-local function setBtnOn(grad,shd2,statL,dot)
-	local col=C()
-	grad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.onBtn1),ColorSequenceKeypoint.new(1,col.onBtn2)})
-	shd2.BackgroundColor3=col.onShd
-	statL.Text=T("enabled"); statL.TextColor3=Color3.fromRGB(168,255,192)
-	dot.BackgroundColor3=Color3.fromRGB(62,255,120)
-end
-local function setBtnOff(grad,shd2,statL,dot)
-	local col=C()
-	grad.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,col.btn1),ColorSequenceKeypoint.new(1,col.btn2)})
-	shd2.BackgroundColor3=col.btnShd
-	statL.Text=T("disabled"); statL.TextColor3=Color3.fromRGB(172,192,255)
-	dot.BackgroundColor3=Color3.fromRGB(145,158,200)
+local function getHRP()
+	local c = getCharacter()
+	return c and c:FindFirstChild("HumanoidRootPart")
 end
 
--- press animation helper
-local baseY={wh=2,ij=70}
-whBtn.MouseButton1Down:Connect(function() whWrap.Position=UDim2.new(0,0,0,baseY.wh+4) end)
-whBtn.MouseLeave:Connect(function() whWrap.Position=UDim2.new(0,0,0,baseY.wh) end)
-whBtn.MouseButton1Up:Connect(function()
-	whWrap.Position=UDim2.new(0,0,0,baseY.wh)
-	if proximityOffset<=0 then return end  -- needs distance > 0
-	wallhopEnabled=not wallhopEnabled
-	if wallhopEnabled then setBtnOn(whGrad,whShd,whStat,whDot) else setBtnOff(whGrad,whShd,whStat,whDot) end
-end)
+local function getHumanoid()
+	local c = getCharacter()
+	return c and c:FindFirstChildOfClass("Humanoid")
+end
 
-ijBtn.MouseButton1Down:Connect(function() ijWrap.Position=UDim2.new(0,0,0,baseY.ij+4) end)
-ijBtn.MouseLeave:Connect(function() ijWrap.Position=UDim2.new(0,0,0,baseY.ij) end)
-ijBtn.MouseButton1Up:Connect(function()
-	ijWrap.Position=UDim2.new(0,0,0,baseY.ij)
-	if proximityOffset<=0 then return end  -- needs distance > 0
-	infiniteJumpEnabled=not infiniteJumpEnabled
-	if infiniteJumpEnabled then setBtnOn(ijGrad,ijShd,ijStat,ijDot) else setBtnOff(ijGrad,ijShd,ijStat,ijDot) end
-end)
-
--- ══════════════════════════════════════
--- SLIDER
--- ══════════════════════════════════════
-local slDrag=false
-slKnob.MouseButton1Down:Connect(function() slDrag=true end)
-UserInputService.InputEnded:Connect(function(i)
-	if i.UserInputType==Enum.UserInputType.MouseButton1 then slDrag=false end
-end)
-UserInputService.InputChanged:Connect(function(i)
-	if slDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
-		local ax=slTrack.AbsolutePosition.X; local aw=slTrack.AbsoluteSize.X
-		local rel=math.clamp((i.Position.X-ax)/aw,0,1)
-		slFill.Size=UDim2.new(rel,0,1,0); slKnob.Position=UDim2.new(rel,-14,0,0)
-		proximityOffset=math.floor(rel*200)/100
-		proxLbl.Text=T("proximity")..": "..proximityOffset.."m"
-		-- auto-disable if set to 0
-		if proximityOffset<=0 then
-			if wallhopEnabled then wallhopEnabled=false; setBtnOff(whGrad,whShd,whStat,whDot) end
-			if infiniteJumpEnabled then infiniteJumpEnabled=false; setBtnOff(ijGrad,ijShd,ijStat,ijDot) end
+local function isNearWall()
+	local hrp = getHRP()
+	if not hrp then return false, nil end
+	local dirs = {
+		Vector3.new(1,0,0), Vector3.new(-1,0,0),
+		Vector3.new(0,0,1), Vector3.new(0,0,-1),
+	}
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = {getCharacter()}
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	for _, dir in ipairs(dirs) do
+		local result = workspace:Raycast(hrp.Position, dir * 1.5, params)
+		if result then
+			return true, result.Normal
 		end
 	end
-end)
-
-rstBtn.MouseButton1Down:Connect(function() rstBtn.Position=UDim2.new(1,-66,0,167) end)
-rstBtn.MouseButton1Up:Connect(function()
-	rstBtn.Position=UDim2.new(1,-66,0,164)
-	proximityOffset=1; slFill.Size=UDim2.new(0.5,0,1,0); slKnob.Position=UDim2.new(0.5,-14,0,0)
-	proxLbl.Text=T("proximity")..": "..proximityOffset.."m"
-end)
-
--- ══════════════════════════════════════
--- INFINITE JUMP
--- ══════════════════════════════════════
-UserInputService.JumpRequest:Connect(function()
-	if infiniteJumpEnabled and proximityOffset>0 and humanoid then
-		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-	end
-end)
-
--- ══════════════════════════════════════
--- WALLHOP LOGIC
--- ══════════════════════════════════════
-local function detectWall()
-	if proximityOffset<=0 then return nil end
-	local rp=RaycastParams.new()
-	rp.FilterDescendantsInstances={character}; rp.FilterType=Enum.RaycastFilterType.Exclude
-	local dirs={Vector3.new(1,0,0),Vector3.new(-1,0,0),Vector3.new(0,0,1),Vector3.new(0,0,-1)}
-	for _,d in ipairs(dirs) do
-		local res=workspace:Raycast(rootPart.Position,d*(proximityOffset+0.55),rp)
-		if res then return res.Normal end
-	end
+	return false, nil
 end
 
-local function smoothWallhop(wallNormal)
-	if isWallhopping then return end
-	isWallhopping=true
+local function hasBombTool()
+	local c = getCharacter()
+	if not c then return false end
+	for _, v in ipairs(c:GetChildren()) do
+		if v:IsA("Tool") and v.Name:lower():find("bomb") then
+			return true
+		end
+	end
+	local bp = LocalPlayer.Backpack
+	if bp then
+		for _, v in ipairs(bp:GetChildren()) do
+			if v:IsA("Tool") and v.Name:lower():find("bomb") then
+				return true
+			end
+		end
+	end
+	return false
+end
 
-	local startCF=rootPart.CFrame
-	local startYaw=math.atan2(startCF.LookVector.X,startCF.LookVector.Z)
-	local wallAngle=math.atan2(wallNormal.X,wallNormal.Z)
-	-- target is 45 degrees offset from wall normal
-	local targetYaw=wallAngle+math.pi/4
-	local diff=targetYaw-startYaw
-	while diff>math.pi do diff-=2*math.pi end
-	while diff<-math.pi do diff+=2*math.pi end
+local function isGreenTagged(character)
+	if not character then return false end
+	for _, v in ipairs(character:GetDescendants()) do
+		if v:IsA("BillboardGui") or v:IsA("SelectionBox") then
+			if v:FindFirstChildWhichIsA("Frame") or v:FindFirstChildWhichIsA("SelectionBox") then
+				-- heuristic: look for green highlight
+			end
+		end
+		if (v:IsA("SelectionBox") or v:IsA("Highlight")) then
+			local col = v:IsA("SelectionBox") and v.Color3 or v.FillColor
+			if col and col.G > 0.5 and col.R < 0.4 and col.B < 0.4 then
+				return true
+			end
+		end
+	end
+	return false
+end
 
-	-- natural hop — gentle push upward, not a rocket
-	local vel=rootPart.AssemblyLinearVelocity
-	rootPart.AssemblyLinearVelocity=Vector3.new(vel.X, 22, vel.Z)
+local function findNearestTarget()
+	local hrp = getHRP()
+	if not hrp then return nil end
+	local best, bestDist = nil, math.huge
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer then
+			local c = p.Character
+			if c and not isGreenTagged(c) then
+				local root = c:FindFirstChild("HumanoidRootPart")
+				local hum  = c:FindFirstChildOfClass("Humanoid")
+				if root and hum and hum.Health > 0 then
+					local d = (root.Position - hrp.Position).Magnitude
+					if d < bestDist then
+						bestDist = d
+						best = p
+					end
+				end
+			end
+		end
+	end
+	return best
+end
 
-	-- smooth rotation 0 → 45 deg over ~0.6s with natural easing
-	local duration=0.60
-	local elapsed=0
-	local conn
-	conn=RunService.Heartbeat:Connect(function(dt)
-		elapsed=math.min(elapsed+dt, duration)
-		local t=elapsed/duration
-		-- ease-out quad: fast start, gentle finish — feels natural
-		local ease=1-(1-t)*(1-t)
-		local yaw=startYaw+diff*ease
-		rootPart.CFrame=CFrame.new(rootPart.Position)*CFrame.Angles(0,yaw,0)
-		if elapsed>=duration then
-			conn:Disconnect(); isWallhopping=false
+-- ══════════════════════════════════════════
+--              TOGGLE HELPERS
+-- ══════════════════════════════════════════
+local function updateButtonLabel(btn, featureName, state)
+	local ml = btn:FindFirstChild("MainLabel")
+	local bl = btn:FindFirstChild("BotLabel")
+	if ml then ml.Text = featureName .. ":" .. (state and "On" or "Off") end
+	if bl then bl.Text = state and "On" or "Off" end
+end
+
+-- ══════════════════════════════════════════
+--              FLICK (Wall-Jump)
+-- ══════════════════════════════════════════
+local flickConnection
+local flickTweening = false
+
+local function doFlickTween(hrp)
+	if flickTweening then return end
+	flickTweening = true
+	local startCF = hrp.CFrame
+	local angles = {0, 15, 30, 45, 30, 15, 0}
+	local idx = 1
+	local function step()
+		if idx > #angles or not State.FlickOn then
+			flickTweening = false
+			return
+		end
+		local angle = math.rad(angles[idx])
+		local targetCF = CFrame.new(hrp.Position) * CFrame.Angles(0, angle, 0)
+		local tw = TweenService:Create(hrp, TweenInfo.new(0.06, Enum.EasingStyle.Linear), {CFrame = targetCF})
+		tw:Play()
+		tw.Completed:Connect(function()
+			idx = idx + 1
+			step()
+		end)
+	end
+	step()
+end
+
+local function setupFlick()
+	if flickConnection then flickConnection:Disconnect() end
+	if not State.FlickOn then return end
+
+	flickConnection = UserInputService.JumpRequest:Connect(function()
+		local hrp = getHRP()
+		local hum = getHumanoid()
+		if not hrp or not hum then return end
+		local near, _ = isNearWall()
+		if near then
+			hum.Jump = true
+			doFlickTween(hrp)
 		end
 	end)
 end
 
-local function onJump()
-	if not wallhopEnabled or proximityOffset<=0 then return end
-	local now=tick()
-	if now-lastJumpTime<0.85 then
-		jumpCount+=1
-		if jumpCount>=2 then
-			jumpCount=0
-			local wn=detectWall()
-			if wn then smoothWallhop(wn) end
-		end
-	else
-		jumpCount=1
+-- ══════════════════════════════════════════
+--              JUKE / DODGE
+-- ══════════════════════════════════════════
+local function doJuke(targetChar)
+	if State.JukeActive then return end
+	State.JukeActive = true
+	local hrp = getHRP()
+	local hum = getHumanoid()
+	if not hrp or not hum then State.JukeActive = false return end
+
+	-- Jump over target head
+	local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+	if targetRoot then
+		local above = targetRoot.Position + Vector3.new(0, 8, 0)
+		-- Tween position toward above target
+		hum.Jump = true
+		local bodyVel = Instance.new("BodyVelocity")
+		bodyVel.Velocity = (above - hrp.Position).Unit * 40
+		bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+		bodyVel.Parent = hrp
+		task.delay(0.3, function() bodyVel:Destroy() end)
 	end
-	lastJumpTime=now
+
+	-- Second jump: random escape direction
+	task.delay(0.35, function()
+		local hrp2 = getHRP()
+		local hum2 = getHumanoid()
+		if hrp2 and hum2 then
+			hum2.Jump = true
+			local randAngle = math.random(0, 360)
+			local dir = Vector3.new(math.cos(math.rad(randAngle)), 0, math.sin(math.rad(randAngle)))
+			local bv2 = Instance.new("BodyVelocity")
+			bv2.Velocity = dir * 35 + Vector3.new(0, 20, 0)
+			bv2.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+			bv2.Parent = hrp2
+			task.delay(0.3, function() bv2:Destroy() end)
+		end
+		task.delay(0.5, function() State.JukeActive = false end)
+	end)
 end
 
-humanoid.Jumping:Connect(function(j) if j then onJump() end end)
+-- ══════════════════════════════════════════
+--              AUTO (Pathfinding Chase)
+-- ══════════════════════════════════════════
+local autoThread
+local pathConnection
+local fakeoutCooldown = false
 
-player.CharacterAdded:Connect(function(nc)
-	character=nc
-	humanoid=nc:WaitForChild("Humanoid")
-	rootPart=nc:WaitForChild("HumanoidRootPart")
-	isWallhopping=false; jumpCount=0
-	humanoid.Jumping:Connect(function(j) if j then onJump() end end)
+local function fakeMoveRight(hrp, hum, duration)
+	-- Fake right then dash left toward target
+	if fakeoutCooldown then return end
+	fakeoutCooldown = true
+	local rightDir = hrp.CFrame.RightVector
+	local bv = Instance.new("BodyVelocity")
+	bv.Velocity = rightDir * 18
+	bv.MaxForce = Vector3.new(1e5, 0, 1e5)
+	bv.Parent = hrp
+	task.delay(0.18, function()
+		bv:Destroy()
+		-- dash toward target
+		local t = State.Target
+		if t and t.Character then
+			local tRoot = t.Character:FindFirstChild("HumanoidRootPart")
+			local myHRP = getHRP()
+			if tRoot and myHRP then
+				local toTarget = (tRoot.Position - myHRP.Position).Unit
+				local bv2 = Instance.new("BodyVelocity")
+				bv2.Velocity = toTarget * 40
+				bv2.MaxForce = Vector3.new(1e5, 0, 1e5)
+				bv2.Parent = myHRP
+				task.delay(0.25, function() bv2:Destroy() end)
+			end
+		end
+		task.delay(1, function() fakeoutCooldown = false end)
+	end)
+end
+
+local function runAutoChase()
+	while State.AutoOn and State.Mode == "chasing" do
+		if not hasBombTool() then task.wait(0.5) continue end
+
+		local target = findNearestTarget()
+		State.Target = target
+
+		if not target then
+			GUI.UsernameLabel.Text = "(username)"
+			task.wait(0.5)
+			continue
+		end
+
+		GUI.UsernameLabel.Text = target.Name
+
+		local hrp = getHRP()
+		local hum = getHumanoid()
+		local tChar = target.Character
+		if not hrp or not hum or not tChar then task.wait(0.3) continue end
+		local tRoot = tChar:FindFirstChild("HumanoidRootPart")
+		if not tRoot then task.wait(0.3) continue end
+
+		-- Pathfinding
+		local path = PathfindingService:CreatePath({
+			AgentHeight = 5,
+			AgentRadius = 2,
+			AgentCanJump = true,
+			WaypointSpacing = 4,
+		})
+
+		local ok, err = pcall(function()
+			path:ComputeAsync(hrp.Position, tRoot.Position)
+		end)
+
+		if ok and path.Status == Enum.PathStatus.Success then
+			local waypoints = path:GetWaypoints()
+			for i, wp in ipairs(waypoints) do
+				if not State.AutoOn or State.Mode ~= "chasing" then break end
+				if wp.Action == Enum.PathWaypointAction.Jump then
+					hum.Jump = true
+				end
+				hum:MoveTo(wp.Position)
+				-- Fakeout every ~5 waypoints
+				if i % 5 == 0 then
+					fakeMoveRight(hrp, hum, 0.18)
+				end
+				local moved = hum.MoveToFinished:Wait()
+				if not moved then break end
+			end
+
+			-- Check if close enough to pass bomb
+			local dist = (hrp.Position - tRoot.Position).Magnitude
+			if dist < 5 then
+				-- Simulate bomb pass: switch to flee
+				State.Mode = "fleeing"
+				task.spawn(function()
+					doJuke(tChar)
+				end)
+			end
+		else
+			-- Fallback: walk straight
+			hum:MoveTo(tRoot.Position)
+			task.wait(0.3)
+		end
+
+		task.wait(0.1)
+	end
+end
+
+local function runAutoFlee()
+	while State.AutoOn and State.Mode == "fleeing" do
+		local target = State.Target
+		local hrp = getHRP()
+		local hum = getHumanoid()
+		if not hrp or not hum or not target or not target.Character then task.wait(0.3) continue end
+		local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+		if not tRoot then task.wait(0.3) continue end
+
+		-- Move opposite direction with fakeout
+		local awayDir = (hrp.Position - tRoot.Position).Unit
+		local fakeAngle = math.rad(math.random(-40, 40))
+		local fakeDir = Vector3.new(
+			awayDir.X * math.cos(fakeAngle) - awayDir.Z * math.sin(fakeAngle),
+			0,
+			awayDir.X * math.sin(fakeAngle) + awayDir.Z * math.cos(fakeAngle)
+		)
+		hum:MoveTo(hrp.Position + fakeDir * 20)
+		hum.MoveToFinished:Wait()
+		task.wait(0.15)
+	end
+end
+
+local function startAutoLoop()
+	if autoThread then task.cancel(autoThread) end
+	State.Mode = "chasing"
+	autoThread = task.spawn(function()
+		while State.AutoOn do
+			if State.Mode == "chasing" then
+				runAutoChase()
+			elseif State.Mode == "fleeing" then
+				runAutoFlee()
+			end
+			task.wait(0.05)
+		end
+	end)
+end
+
+local function stopAuto()
+	State.Mode = "idle"
+	State.Target = nil
+	if autoThread then task.cancel(autoThread) autoThread = nil end
+	local hum = getHumanoid()
+	local hrp = getHRP()
+	if hum and hrp then hum:MoveTo(hrp.Position) end
+	GUI.UsernameLabel.Text = "(username)"
+end
+
+-- ══════════════════════════════════════════
+--              FACING (Camera Lock-On)
+-- ══════════════════════════════════════════
+local facingConn
+
+local function setupFacing()
+	if facingConn then facingConn:Disconnect() facingConn = nil end
+	if not State.FacingOn or not State.AutoOn then return end
+
+	facingConn = RunService.RenderStepped:Connect(function()
+		if not State.FacingOn or not State.AutoOn then return end
+		local target = State.Target
+		if not target or not target.Character then return end
+		local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+		local hrp   = getHRP()
+		if not tRoot or not hrp then return end
+
+		-- Face character toward target
+		local dir = (tRoot.Position - hrp.Position)
+		dir = Vector3.new(dir.X, 0, dir.Z)
+		if dir.Magnitude > 0.1 then
+			hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + dir)
+		end
+
+		-- Lock camera
+		Camera.CFrame = CFrame.new(Camera.CFrame.Position, tRoot.Position)
+	end)
+end
+
+-- ══════════════════════════════════════════
+--              STATUS DOTS
+-- ══════════════════════════════════════════
+local dotIndex = 0
+local dotLabels = {".", "..", "..."}
+
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		local sl = GUI.StatusLabel
+		if not sl or not sl.Parent then break end
+		if State.Mode == "chasing" and State.Target then
+			sl.Text = "Target: " .. State.Target.Name
+		elseif State.Mode == "fleeing" then
+			dotIndex = (dotIndex % 3) + 1
+			sl.Text = "جاري" .. dotLabels[dotIndex]
+		else
+			dotIndex = (dotIndex % 3) + 1
+			sl.Text = dotLabels[dotIndex]
+		end
+	end
 end)
 
-print("zYnFlick Ready")
+-- ══════════════════════════════════════════
+--              BUTTON CALLBACKS
+-- ══════════════════════════════════════════
+GUI.FlickBtn.MouseButton1Click:Connect(function()
+	State.FlickOn = not State.FlickOn
+	updateButtonLabel(GUI.FlickBtn, "Flick", State.FlickOn)
+	setupFlick()
+end)
+
+GUI.AutoBtn.MouseButton1Click:Connect(function()
+	State.AutoOn = not State.AutoOn
+	updateButtonLabel(GUI.AutoBtn, "Auto", State.AutoOn)
+	if State.AutoOn then
+		State.Mode = "chasing"
+		startAutoLoop()
+		setupFacing()
+	else
+		stopAuto()
+		if facingConn then facingConn:Disconnect() facingConn = nil end
+	end
+end)
+
+GUI.FacingBtn.MouseButton1Click:Connect(function()
+	State.FacingOn = not State.FacingOn
+	updateButtonLabel(GUI.FacingBtn, "Facing", State.FacingOn)
+	setupFacing()
+end)
+
+GUI.JukeBtn.MouseButton1Click:Connect(function()
+	State.JukeOn = not State.JukeOn
+	updateButtonLabel(GUI.JukeBtn, "Juke", State.JukeOn)
+	if State.JukeOn and State.Target and State.Target.Character then
+		doJuke(State.Target.Character)
+	end
+end)
+
+-- ══════════════════════════════════════════
+--              CLOSE / REOPEN
+-- ══════════════════════════════════════════
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+GUI.CloseBtn.MouseButton1Click:Connect(function()
+	GUI.Main.Visible = false
+	if isMobile then
+		-- On mobile: permanent close, require script restart
+	end
+end)
+
+if not isMobile then
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp then return end
+		if input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
+			if GUI.Main then
+				GUI.Main.Visible = not GUI.Main.Visible
+			end
+		end
+	end)
+end
+
+-- ══════════════════════════════════════════
+--              GUARD: re-parent protection
+-- ══════════════════════════════════════════
+GUI.ScreenGui.AncestryChanged:Connect(function(_, parent)
+	if not parent then
+		GUI = buildGUI()
+	end
+end)
