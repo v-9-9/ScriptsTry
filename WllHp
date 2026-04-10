@@ -1,4 +1,4 @@
--- ZYnTDA Wallhop Script
+-- zYnFlick Wallhop Script
 -- LocalScript
 
 local Players = game:GetService("Players")
@@ -19,15 +19,19 @@ local lastJumpTime = 0
 local isWallhopping = false
 local proximityOffset = 1
 
+-- Infinite Jump state
+local infiniteJumpEnabled = false
+local onGround = false
+
 local strings = {
-	en = { title="ZYnTDA", wallhop="Wall Hop", enabled="ENABLED", disabled="DISABLED", proximity="Wall Proximity", reset="Reset", drag="Drag" },
-	ar = { title="ZYnTDA", wallhop="قفز الجدار", enabled="مفعّل", disabled="معطّل", proximity="قرب الجدار", reset="إعادة", drag="سحب" }
+	en = { title="zYnFlick", wallhop="Wall Hop", enabled="ENABLED", disabled="DISABLED", proximity="Wall Proximity", reset="Reset", drag="Drag", infjump="Inf Jump" },
+	ar = { title="zYnFlick", wallhop="قفز الجدار", enabled="مفعّل", disabled="معطّل", proximity="قرب الجدار", reset="إعادة", drag="سحب", infjump="قفز لا نهائي" }
 }
-local function getText(key) return isArabic and strings.ar[key] or strings.en[key] end
+local function getText(k) return isArabic and strings.ar[k] or strings.en[k] end
 
 -- GUI
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "ZYnTDA_GUI"
+screenGui.Name = "zYnFlick_GUI"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 local ok = pcall(function() screenGui.Parent = game:GetService("CoreGui") end)
@@ -39,365 +43,453 @@ screenGui.AncestryChanged:Connect(function()
 	end
 end)
 
+-- Light mode colors
+local LM = {
+	bg         = Color3.fromRGB(235, 240, 255),
+	titleA     = Color3.fromRGB(82, 108, 218),
+	titleB     = Color3.fromRGB(48, 68, 158),
+	btnA       = Color3.fromRGB(92, 122, 218),
+	btnB       = Color3.fromRGB(52, 72, 165),
+	btnShd     = Color3.fromRGB(28, 44, 112),
+	stroke     = Color3.fromRGB(175, 188, 225),
+	trackBg    = Color3.fromRGB(195, 208, 238),
+	trackFill  = Color3.fromRGB(68, 92, 175),
+	knobBg     = Color3.fromRGB(255, 255, 255),
+	knobStroke = Color3.fromRGB(68, 92, 175),
+	proxTxt    = Color3.fromRGB(58, 78, 162),
+	infoTxt    = Color3.fromRGB(110, 132, 188),
+	titleTxt   = Color3.fromRGB(255, 255, 255),
+	shadow     = Color3.fromRGB(88, 108, 185),
+}
+-- Dark mode colors
+local DM = {
+	bg         = Color3.fromRGB(14, 18, 38),
+	titleA     = Color3.fromRGB(38, 52, 118),
+	titleB     = Color3.fromRGB(22, 32, 88),
+	btnA       = Color3.fromRGB(28, 42, 105),
+	btnB       = Color3.fromRGB(18, 28, 78),
+	btnShd     = Color3.fromRGB(8, 12, 42),
+	stroke     = Color3.fromRGB(42, 58, 118),
+	trackBg    = Color3.fromRGB(22, 30, 65),
+	trackFill  = Color3.fromRGB(55, 88, 175),
+	knobBg     = Color3.fromRGB(32, 42, 88),
+	knobStroke = Color3.fromRGB(88, 118, 215),
+	proxTxt    = Color3.fromRGB(108, 138, 215),
+	infoTxt    = Color3.fromRGB(68, 92, 148),
+	titleTxt   = Color3.fromRGB(200, 218, 255),
+	shadow     = Color3.fromRGB(8, 12, 35),
+}
+local function C() return isDarkMode and DM or LM end
+
+-- Main Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 320, 0, 290)
-mainFrame.Position = UDim2.new(0.5, -160, 0.5, -145)
-mainFrame.BackgroundColor3 = Color3.fromRGB(240, 245, 255)
+mainFrame.Size = UDim2.new(0, 308, 0, 308)
+mainFrame.Position = UDim2.new(0.5, -154, 0.5, -154)
+mainFrame.BackgroundColor3 = LM.bg
 mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
 mainFrame.Parent = screenGui
-Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 18)
+local mainCorner = Instance.new("UICorner", mainFrame)
+mainCorner.CornerRadius = UDim.new(0, 20)
 local mainStroke = Instance.new("UIStroke", mainFrame)
-mainStroke.Color = Color3.fromRGB(180, 190, 220)
+mainStroke.Color = LM.stroke
 mainStroke.Thickness = 1.5
 
+-- Gradient on main bg
+local bgGrad = Instance.new("UIGradient", mainFrame)
+bgGrad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(240, 246, 255)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(220, 232, 255)),
+})
+bgGrad.Rotation = 135
+
 local shadow = Instance.new("Frame", mainFrame)
-shadow.Size = UDim2.new(1, 12, 1, 12)
-shadow.Position = UDim2.new(0, -6, 0, 6)
-shadow.BackgroundColor3 = Color3.fromRGB(80, 100, 180)
-shadow.BackgroundTransparency = 0.78
+shadow.Size = UDim2.new(1, 14, 1, 14)
+shadow.Position = UDim2.new(0, -7, 0, 7)
+shadow.BackgroundColor3 = LM.shadow
+shadow.BackgroundTransparency = 0.72
 shadow.BorderSizePixel = 0
 shadow.ZIndex = mainFrame.ZIndex - 1
-Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 22)
+Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 24)
 
+-- Title Bar
 local titleBar = Instance.new("Frame", mainFrame)
-titleBar.Size = UDim2.new(1, 0, 0, 50)
-titleBar.BackgroundColor3 = Color3.fromRGB(55, 75, 165)
+titleBar.Size = UDim2.new(1, 0, 0, 52)
+titleBar.Position = UDim2.new(0, 0, 0, 0)
+titleBar.BackgroundColor3 = LM.titleA
 titleBar.BorderSizePixel = 0
-Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 18)
+local titleCorner = Instance.new("UICorner", titleBar)
+titleCorner.CornerRadius = UDim.new(0, 20)
 local titleFix = Instance.new("Frame", titleBar)
-titleFix.Size = UDim2.new(1, 0, 0, 18)
-titleFix.Position = UDim2.new(0, 0, 1, -18)
-titleFix.BackgroundColor3 = Color3.fromRGB(55, 75, 165)
+titleFix.Size = UDim2.new(1, 0, 0, 20)
+titleFix.Position = UDim2.new(0, 0, 1, -20)
+titleFix.BackgroundColor3 = LM.titleA
 titleFix.BorderSizePixel = 0
-local tg = Instance.new("UIGradient", titleBar)
-tg.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(85, 110, 210)), ColorSequenceKeypoint.new(1, Color3.fromRGB(40, 58, 145))})
-tg.Rotation = 90
+local titleGrad = Instance.new("UIGradient", titleBar)
+titleGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, LM.titleA), ColorSequenceKeypoint.new(1, LM.titleB)})
+titleGrad.Rotation = 90
 
 local titleLabel = Instance.new("TextLabel", titleBar)
-titleLabel.Size = UDim2.new(1, -110, 1, 0)
-titleLabel.Position = UDim2.new(0, 14, 0, 0)
+titleLabel.Size = UDim2.new(1, -115, 1, 0)
+titleLabel.Position = UDim2.new(0, 16, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "ZYnTDA"
+titleLabel.Text = "zYnFlick"
 titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.TextSize = 20
+titleLabel.TextSize = 19
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
--- ============================================================
--- GLOBE ICON (drawn manually with Frames)
--- ============================================================
-local globeContainer = Instance.new("Frame", titleBar)
-globeContainer.Size = UDim2.new(0, 30, 0, 30)
-globeContainer.Position = UDim2.new(1, -74, 0.5, -15)
-globeContainer.BackgroundTransparency = 1
-globeContainer.BorderSizePixel = 0
+-- ===== GLOBE (manual, title bar) =====
+local globeHolder = Instance.new("Frame", titleBar)
+globeHolder.Size = UDim2.new(0, 28, 0, 28)
+globeHolder.Position = UDim2.new(1, -72, 0.5, -14)
+globeHolder.BackgroundTransparency = 1
+globeHolder.ClipsDescendants = false
 
--- Outer circle of globe
-local globeOuter = Instance.new("Frame", globeContainer)
-globeOuter.Size = UDim2.new(1, 0, 1, 0)
-globeOuter.BackgroundColor3 = Color3.fromRGB(80, 160, 230)
-globeOuter.BorderSizePixel = 0
-Instance.new("UICorner", globeOuter).CornerRadius = UDim.new(1, 0)
+local globeCircle = Instance.new("Frame", globeHolder)
+globeCircle.Size = UDim2.new(0, 28, 0, 28)
+globeCircle.Position = UDim2.new(0, 0, 0, 0)
+globeCircle.BackgroundColor3 = Color3.fromRGB(58, 138, 218)
+globeCircle.BorderSizePixel = 0
+Instance.new("UICorner", globeCircle).CornerRadius = UDim.new(1, 0)
+local gcStroke = Instance.new("UIStroke", globeCircle)
+gcStroke.Color = Color3.fromRGB(185, 222, 255)
+gcStroke.Thickness = 1.5
 
--- Globe stroke
-local gStroke = Instance.new("UIStroke", globeOuter)
-gStroke.Color = Color3.fromRGB(200, 230, 255)
-gStroke.Thickness = 1.5
+-- meridian vertical
+local gMerid = Instance.new("Frame", globeCircle)
+gMerid.Size = UDim2.new(0, 2, 1, -6)
+gMerid.Position = UDim2.new(0.5, -1, 0, 3)
+gMerid.BackgroundColor3 = Color3.fromRGB(185, 222, 255)
+gMerid.BackgroundTransparency = 0.25
+gMerid.BorderSizePixel = 0
+Instance.new("UICorner", gMerid).CornerRadius = UDim.new(0, 1)
 
--- Vertical line (meridian)
-local meridian = Instance.new("Frame", globeOuter)
-meridian.Size = UDim2.new(0, 2, 1, -4)
-meridian.Position = UDim2.new(0.5, -1, 0, 2)
-meridian.BackgroundColor3 = Color3.fromRGB(200, 230, 255)
-meridian.BorderSizePixel = 0
-meridian.BackgroundTransparency = 0.3
+-- equator horizontal
+local gEquat = Instance.new("Frame", globeCircle)
+gEquat.Size = UDim2.new(1, -6, 0, 2)
+gEquat.Position = UDim2.new(0, 3, 0.5, -1)
+gEquat.BackgroundColor3 = Color3.fromRGB(185, 222, 255)
+gEquat.BackgroundTransparency = 0.25
+gEquat.BorderSizePixel = 0
+Instance.new("UICorner", gEquat).CornerRadius = UDim.new(0, 1)
 
--- Horizontal equator
-local equator = Instance.new("Frame", globeOuter)
-equator.Size = UDim2.new(1, -4, 0, 2)
-equator.Position = UDim2.new(0, 2, 0.5, -1)
-equator.BackgroundColor3 = Color3.fromRGB(200, 230, 255)
-equator.BorderSizePixel = 0
-equator.BackgroundTransparency = 0.3
+-- top latitude
+local gLatT = Instance.new("Frame", globeCircle)
+gLatT.Size = UDim2.new(0.7, 0, 0, 2)
+gLatT.Position = UDim2.new(0.15, 0, 0.3, 0)
+gLatT.BackgroundColor3 = Color3.fromRGB(185, 222, 255)
+gLatT.BackgroundTransparency = 0.45
+gLatT.BorderSizePixel = 0
+Instance.new("UICorner", gLatT).CornerRadius = UDim.new(0, 1)
 
--- Top arc line (latitude)
-local latTop = Instance.new("Frame", globeOuter)
-latTop.Size = UDim2.new(0.75, 0, 0, 2)
-latTop.Position = UDim2.new(0.125, 0, 0.28, 0)
-latTop.BackgroundColor3 = Color3.fromRGB(200, 230, 255)
-latTop.BorderSizePixel = 0
-latTop.BackgroundTransparency = 0.4
+-- bottom latitude
+local gLatB = Instance.new("Frame", globeCircle)
+gLatB.Size = UDim2.new(0.7, 0, 0, 2)
+gLatB.Position = UDim2.new(0.15, 0, 0.68, 0)
+gLatB.BackgroundColor3 = Color3.fromRGB(185, 222, 255)
+gLatB.BackgroundTransparency = 0.45
+gLatB.BorderSizePixel = 0
+Instance.new("UICorner", gLatB).CornerRadius = UDim.new(0, 1)
 
--- Bottom arc line (latitude)
-local latBot = Instance.new("Frame", globeOuter)
-latBot.Size = UDim2.new(0.75, 0, 0, 2)
-latBot.Position = UDim2.new(0.125, 0, 0.70, 0)
-latBot.BackgroundColor3 = Color3.fromRGB(200, 230, 255)
-latBot.BorderSizePixel = 0
-latBot.BackgroundTransparency = 0.4
-
--- Clickable button over globe
-local globeBtn = Instance.new("TextButton", globeContainer)
+local globeBtn = Instance.new("TextButton", globeHolder)
 globeBtn.Size = UDim2.new(1, 0, 1, 0)
 globeBtn.BackgroundTransparency = 1
 globeBtn.Text = ""
-globeBtn.ZIndex = 5
+globeBtn.ZIndex = 8
 
--- ============================================================
--- SUN ICON (drawn manually)
--- ============================================================
-local sunContainer = Instance.new("Frame", titleBar)
-sunContainer.Size = UDim2.new(0, 30, 0, 30)
-sunContainer.Position = UDim2.new(1, -38, 0.5, -15)
-sunContainer.BackgroundTransparency = 1
-sunContainer.BorderSizePixel = 0
+-- ===== SUN (manual, title bar) =====
+local sunHolder = Instance.new("Frame", titleBar)
+sunHolder.Size = UDim2.new(0, 28, 0, 28)
+sunHolder.Position = UDim2.new(1, -36, 0.5, -14)
+sunHolder.BackgroundTransparency = 1
+sunHolder.ClipsDescendants = false
 
--- Sun core circle
-local sunCore = Instance.new("Frame", sunContainer)
-sunCore.Size = UDim2.new(0, 14, 0, 14)
-sunCore.Position = UDim2.new(0.5, -7, 0.5, -7)
-sunCore.BackgroundColor3 = Color3.fromRGB(255, 220, 60)
-sunCore.BorderSizePixel = 0
-Instance.new("UICorner", sunCore).CornerRadius = UDim.new(1, 0)
-
--- Sun rays (8 rays as small rectangles rotated around center)
-local rayAngles = {0, 45, 90, 135, 180, 225, 270, 315}
-local sunRays = {}
-for i, angle in ipairs(rayAngles) do
-	local ray = Instance.new("Frame", sunContainer)
-	ray.Size = UDim2.new(0, 3, 0, 7)
-	ray.AnchorPoint = Vector2.new(0.5, 1)
-	local rad = math.rad(angle)
-	local cx, cy = 15, 15
-	local dist = 13
-	ray.Position = UDim2.new(0, cx + math.sin(rad) * dist - 1.5, 0, cy - math.cos(rad) * dist)
-	ray.BackgroundColor3 = Color3.fromRGB(255, 210, 50)
-	ray.BorderSizePixel = 0
-	ray.Rotation = angle
-	Instance.new("UICorner", ray).CornerRadius = UDim.new(0, 2)
-	sunRays[i] = ray
+-- Rays first (behind core)
+local rayDefs = {0, 45, 90, 135, 180, 225, 270, 315}
+for _, ang in ipairs(rayDefs) do
+	local r = Instance.new("Frame", sunHolder)
+	r.Size = UDim2.new(0, 2, 0, 6)
+	r.AnchorPoint = Vector2.new(0.5, 0.5)
+	local rad = math.rad(ang)
+	r.Position = UDim2.new(0.5, math.sin(rad)*11 - 1, 0.5, -math.cos(rad)*11 - 3)
+	r.BackgroundColor3 = Color3.fromRGB(255, 208, 48)
+	r.BorderSizePixel = 0
+	r.Rotation = ang
+	Instance.new("UICorner", r).CornerRadius = UDim.new(0, 1)
 end
 
--- Moon parts (hidden by default)
-local moonContainer = Instance.new("Frame", titleBar)
-moonContainer.Size = UDim2.new(0, 30, 0, 30)
-moonContainer.Position = UDim2.new(1, -38, 0.5, -15)
-moonContainer.BackgroundTransparency = 1
-moonContainer.BorderSizePixel = 0
-moonContainer.Visible = false
+local sunCore = Instance.new("Frame", sunHolder)
+sunCore.Size = UDim2.new(0, 13, 0, 13)
+sunCore.Position = UDim2.new(0.5, -6, 0.5, -7)
+sunCore.BackgroundColor3 = Color3.fromRGB(255, 218, 58)
+sunCore.BorderSizePixel = 0
+Instance.new("UICorner", sunCore).CornerRadius = UDim.new(1, 0)
+local sunGlow = Instance.new("UIStroke", sunCore)
+sunGlow.Color = Color3.fromRGB(255, 235, 120)
+sunGlow.Thickness = 1.5
 
--- Moon main circle
-local moonMain = Instance.new("Frame", moonContainer)
-moonMain.Size = UDim2.new(0, 20, 0, 20)
-moonMain.Position = UDim2.new(0.5, -10, 0.5, -10)
-moonMain.BackgroundColor3 = Color3.fromRGB(210, 225, 255)
-moonMain.BorderSizePixel = 0
-Instance.new("UICorner", moonMain).CornerRadius = UDim.new(1, 0)
+-- ===== MOON (manual, title bar, hidden) =====
+local moonHolder = Instance.new("Frame", titleBar)
+moonHolder.Size = UDim2.new(0, 28, 0, 28)
+moonHolder.Position = UDim2.new(1, -36, 0.5, -14)
+moonHolder.BackgroundTransparency = 1
+moonHolder.ClipsDescendants = false
+moonHolder.Visible = false
 
--- Moon cutout (darker circle offset to create crescent)
-local moonCut = Instance.new("Frame", moonContainer)
+local moonBig = Instance.new("Frame", moonHolder)
+moonBig.Size = UDim2.new(0, 20, 0, 20)
+moonBig.Position = UDim2.new(0.5, -12, 0.5, -10)
+moonBig.BackgroundColor3 = Color3.fromRGB(198, 218, 255)
+moonBig.BorderSizePixel = 0
+Instance.new("UICorner", moonBig).CornerRadius = UDim.new(1, 0)
+
+local moonCut = Instance.new("Frame", moonHolder)
 moonCut.Size = UDim2.new(0, 17, 0, 17)
-moonCut.Position = UDim2.new(0.5, -5, 0.5, -11)
-moonCut.BackgroundColor3 = Color3.fromRGB(55, 75, 165) -- matches title bar, creates crescent illusion
+moonCut.Position = UDim2.new(0.5, -5, 0.5, -12)
+moonCut.BackgroundColor3 = DM.titleB
 moonCut.BorderSizePixel = 0
-moonCut.ZIndex = moonMain.ZIndex + 1
+moonCut.ZIndex = moonBig.ZIndex + 1
 Instance.new("UICorner", moonCut).CornerRadius = UDim.new(1, 0)
 
--- Small star near moon
-local star1 = Instance.new("Frame", moonContainer)
-star1.Size = UDim2.new(0, 4, 0, 4)
-star1.Position = UDim2.new(0, 22, 0, 4)
-star1.BackgroundColor3 = Color3.fromRGB(220, 235, 255)
-star1.BorderSizePixel = 0
-Instance.new("UICorner", star1).CornerRadius = UDim.new(1, 0)
+local mStar1 = Instance.new("Frame", moonHolder)
+mStar1.Size = UDim2.new(0, 4, 0, 4)
+mStar1.Position = UDim2.new(0.5, 6, 0, 2)
+mStar1.BackgroundColor3 = Color3.fromRGB(215, 232, 255)
+mStar1.BorderSizePixel = 0
+Instance.new("UICorner", mStar1).CornerRadius = UDim.new(1, 0)
 
-local star2 = Instance.new("Frame", moonContainer)
-star2.Size = UDim2.new(0, 3, 0, 3)
-star2.Position = UDim2.new(0, 18, 0, 20)
-star2.BackgroundColor3 = Color3.fromRGB(220, 235, 255)
-star2.BorderSizePixel = 0
-Instance.new("UICorner", star2).CornerRadius = UDim.new(1, 0)
+local mStar2 = Instance.new("Frame", moonHolder)
+mStar2.Size = UDim2.new(0, 3, 0, 3)
+mStar2.Position = UDim2.new(0.5, 8, 0.5, 5)
+mStar2.BackgroundColor3 = Color3.fromRGB(215, 232, 255)
+mStar2.BorderSizePixel = 0
+Instance.new("UICorner", mStar2).CornerRadius = UDim.new(1, 0)
 
--- Clickable over sun/moon
 local sunMoonBtn = Instance.new("TextButton", titleBar)
-sunMoonBtn.Size = UDim2.new(0, 30, 0, 30)
-sunMoonBtn.Position = UDim2.new(1, -38, 0.5, -15)
+sunMoonBtn.Size = UDim2.new(0, 28, 0, 28)
+sunMoonBtn.Position = UDim2.new(1, -36, 0.5, -14)
 sunMoonBtn.BackgroundTransparency = 1
 sunMoonBtn.Text = ""
 sunMoonBtn.ZIndex = 10
 
--- Content
+-- ===== CONTENT =====
 local contentFrame = Instance.new("Frame", mainFrame)
-contentFrame.Size = UDim2.new(1, -24, 1, -62)
-contentFrame.Position = UDim2.new(0, 12, 0, 54)
+contentFrame.Size = UDim2.new(1, -26, 1, -66)
+contentFrame.Position = UDim2.new(0, 13, 0, 58)
 contentFrame.BackgroundTransparency = 1
 
+-- helper: make a 3D button
+local function make3DBtn(parent, posY, height, textA, textB, colorA, colorB, shdColor)
+	local btn = Instance.new("TextButton", parent)
+	btn.Size = UDim2.new(1, 0, 0, height)
+	btn.Position = UDim2.new(0, 0, 0, posY)
+	btn.BackgroundColor3 = colorA
+	btn.BorderSizePixel = 0
+	btn.Text = ""
+	btn.ZIndex = 3
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
+
+	local shd = Instance.new("Frame", btn)
+	shd.Size = UDim2.new(1, 0, 1, 5)
+	shd.Position = UDim2.new(0, 0, 0, 4)
+	shd.BackgroundColor3 = shdColor
+	shd.BorderSizePixel = 0
+	shd.ZIndex = btn.ZIndex - 1
+	Instance.new("UICorner", shd).CornerRadius = UDim.new(0, 12)
+
+	local grad = Instance.new("UIGradient", btn)
+	grad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, colorA), ColorSequenceKeypoint.new(1, colorB)})
+	grad.Rotation = 90
+
+	local dot = Instance.new("Frame", btn)
+	dot.Size = UDim2.new(0, 9, 0, 9)
+	dot.Position = UDim2.new(0, 11, 0.5, -4)
+	dot.BackgroundColor3 = Color3.fromRGB(145, 155, 192)
+	dot.BorderSizePixel = 0
+	Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+	local la = Instance.new("TextLabel", btn)
+	la.Size = UDim2.new(1, -28, 0.52, 0)
+	la.Position = UDim2.new(0, 26, 0, 0)
+	la.BackgroundTransparency = 1
+	la.Text = textA
+	la.TextColor3 = Color3.fromRGB(255, 255, 255)
+	la.TextSize = 14
+	la.Font = Enum.Font.GothamBold
+	la.TextXAlignment = Enum.TextXAlignment.Left
+
+	local lb = Instance.new("TextLabel", btn)
+	lb.Size = UDim2.new(1, -28, 0.48, 0)
+	lb.Position = UDim2.new(0, 26, 0.52, 0)
+	lb.BackgroundTransparency = 1
+	lb.Text = textB
+	lb.TextColor3 = Color3.fromRGB(175, 195, 255)
+	lb.TextSize = 12
+	lb.Font = Enum.Font.Gotham
+	lb.TextXAlignment = Enum.TextXAlignment.Left
+
+	return btn, shd, grad, dot, la, lb
+end
+
 -- Wallhop Button
-local wallhopBtn = Instance.new("TextButton", contentFrame)
-wallhopBtn.Size = UDim2.new(1, 0, 0, 62)
-wallhopBtn.Position = UDim2.new(0, 0, 0, 6)
-wallhopBtn.BackgroundColor3 = Color3.fromRGB(60, 80, 160)
-wallhopBtn.BorderSizePixel = 0
-wallhopBtn.Text = ""
-Instance.new("UICorner", wallhopBtn).CornerRadius = UDim.new(0, 12)
+local wallhopBtn, whShd, whGrad, whDot, whNameL, whStatusL =
+	make3DBtn(contentFrame, 2, 58,
+		getText("wallhop"), getText("disabled"),
+		LM.btnA, LM.btnB, LM.btnShd)
 
-local whShadow = Instance.new("Frame", wallhopBtn)
-whShadow.Size = UDim2.new(1, 0, 1, 5)
-whShadow.Position = UDim2.new(0, 0, 0, 5)
-whShadow.BackgroundColor3 = Color3.fromRGB(28, 42, 108)
-whShadow.BorderSizePixel = 0
-whShadow.ZIndex = wallhopBtn.ZIndex - 1
-Instance.new("UICorner", whShadow).CornerRadius = UDim.new(0, 12)
-
-local whGrad = Instance.new("UIGradient", wallhopBtn)
-whGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(95, 125, 215)), ColorSequenceKeypoint.new(1, Color3.fromRGB(50, 68, 158))})
-whGrad.Rotation = 90
-
-local statusDot = Instance.new("Frame", wallhopBtn)
-statusDot.Size = UDim2.new(0, 10, 0, 10)
-statusDot.Position = UDim2.new(0, 12, 0.5, -5)
-statusDot.BackgroundColor3 = Color3.fromRGB(140, 148, 185)
-statusDot.BorderSizePixel = 0
-Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
-
-local wallhopLabelName = Instance.new("TextLabel", wallhopBtn)
-wallhopLabelName.Size = UDim2.new(1, -30, 0.5, 0)
-wallhopLabelName.Position = UDim2.new(0, 28, 0, 0)
-wallhopLabelName.BackgroundTransparency = 1
-wallhopLabelName.Text = getText("wallhop")
-wallhopLabelName.TextColor3 = Color3.fromRGB(255, 255, 255)
-wallhopLabelName.TextSize = 15
-wallhopLabelName.Font = Enum.Font.GothamBold
-wallhopLabelName.TextXAlignment = Enum.TextXAlignment.Left
-
-local wallhopStatus = Instance.new("TextLabel", wallhopBtn)
-wallhopStatus.Size = UDim2.new(1, -30, 0.5, 0)
-wallhopStatus.Position = UDim2.new(0, 28, 0.5, 0)
-wallhopStatus.BackgroundTransparency = 1
-wallhopStatus.Text = getText("disabled")
-wallhopStatus.TextColor3 = Color3.fromRGB(175, 195, 255)
-wallhopStatus.TextSize = 13
-wallhopStatus.Font = Enum.Font.Gotham
-wallhopStatus.TextXAlignment = Enum.TextXAlignment.Left
+-- Infinite Jump Button
+local infJumpBtn, ijShd, ijGrad, ijDot, ijNameL, ijStatusL =
+	make3DBtn(contentFrame, 68, 54,
+		getText("infjump"), getText("disabled"),
+		LM.btnA, LM.btnB, LM.btnShd)
 
 -- Proximity label
-local proximityLabel = Instance.new("TextLabel", contentFrame)
-proximityLabel.Size = UDim2.new(1, 0, 0, 22)
-proximityLabel.Position = UDim2.new(0, 0, 0, 82)
-proximityLabel.BackgroundTransparency = 1
-proximityLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
-proximityLabel.TextColor3 = Color3.fromRGB(60, 80, 160)
-proximityLabel.TextSize = 13
-proximityLabel.Font = Enum.Font.GothamSemibold
-proximityLabel.TextXAlignment = Enum.TextXAlignment.Left
+local proxLabel = Instance.new("TextLabel", contentFrame)
+proxLabel.Size = UDim2.new(1, 0, 0, 20)
+proxLabel.Position = UDim2.new(0, 0, 0, 130)
+proxLabel.BackgroundTransparency = 1
+proxLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
+proxLabel.TextColor3 = LM.proxTxt
+proxLabel.TextSize = 12
+proxLabel.Font = Enum.Font.GothamSemibold
+proxLabel.TextXAlignment = Enum.TextXAlignment.Left
 
--- Slider Track
+-- Slider track
 local sliderTrack = Instance.new("Frame", contentFrame)
-sliderTrack.Size = UDim2.new(1, -70, 0, 28)
-sliderTrack.Position = UDim2.new(0, 0, 0, 110)
-sliderTrack.BackgroundColor3 = Color3.fromRGB(198, 210, 238)
+sliderTrack.Size = UDim2.new(1, -72, 0, 26)
+sliderTrack.Position = UDim2.new(0, 0, 0, 154)
+sliderTrack.BackgroundColor3 = LM.trackBg
 sliderTrack.BorderSizePixel = 0
-Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(0, 14)
+Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(0, 13)
 
 local sliderFill = Instance.new("Frame", sliderTrack)
 sliderFill.Size = UDim2.new(0.5, 0, 1, 0)
-sliderFill.BackgroundColor3 = Color3.fromRGB(60, 80, 160)
+sliderFill.BackgroundColor3 = LM.trackFill
 sliderFill.BorderSizePixel = 0
-Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(0, 14)
+Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(0, 13)
+
+local sliderFillGrad = Instance.new("UIGradient", sliderFill)
+sliderFillGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(105, 138, 228)), ColorSequenceKeypoint.new(1, Color3.fromRGB(58, 85, 172))})
+sliderFillGrad.Rotation = 0
 
 local sliderKnob = Instance.new("TextButton", sliderTrack)
-sliderKnob.Size = UDim2.new(0, 28, 0, 28)
-sliderKnob.Position = UDim2.new(0.5, -14, 0, 0)
-sliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+sliderKnob.Size = UDim2.new(0, 26, 0, 26)
+sliderKnob.Position = UDim2.new(0.5, -13, 0, 0)
+sliderKnob.BackgroundColor3 = LM.knobBg
 sliderKnob.BorderSizePixel = 0
 sliderKnob.Text = getText("drag")
-sliderKnob.TextColor3 = Color3.fromRGB(60, 80, 160)
-sliderKnob.TextSize = 9
+sliderKnob.TextColor3 = LM.trackFill
+sliderKnob.TextSize = 8
 sliderKnob.Font = Enum.Font.GothamBold
-sliderKnob.ZIndex = 4
+sliderKnob.ZIndex = 5
 Instance.new("UICorner", sliderKnob).CornerRadius = UDim.new(1, 0)
 local kStroke = Instance.new("UIStroke", sliderKnob)
-kStroke.Color = Color3.fromRGB(60, 80, 160)
-kStroke.Thickness = 2
+kStroke.Color = LM.knobStroke
+kStroke.Thickness = 1.8
 
-local knobShadow = Instance.new("Frame", sliderKnob)
-knobShadow.Size = UDim2.new(1, 0, 1, 4)
-knobShadow.Position = UDim2.new(0, 0, 0, 3)
-knobShadow.BackgroundColor3 = Color3.fromRGB(28, 48, 118)
-knobShadow.BorderSizePixel = 0
-knobShadow.ZIndex = sliderKnob.ZIndex - 1
-Instance.new("UICorner", knobShadow).CornerRadius = UDim.new(1, 0)
+local kShd = Instance.new("Frame", sliderKnob)
+kShd.Size = UDim2.new(1, 0, 1, 3)
+kShd.Position = UDim2.new(0, 0, 0, 2)
+kShd.BackgroundColor3 = LM.btnShd
+kShd.BackgroundTransparency = 0.3
+kShd.BorderSizePixel = 0
+kShd.ZIndex = sliderKnob.ZIndex - 1
+Instance.new("UICorner", kShd).CornerRadius = UDim.new(1, 0)
 
+-- Reset button
 local resetBtn = Instance.new("TextButton", contentFrame)
-resetBtn.Size = UDim2.new(0, 60, 0, 28)
-resetBtn.Position = UDim2.new(1, -60, 0, 110)
-resetBtn.BackgroundColor3 = Color3.fromRGB(78, 98, 185)
+resetBtn.Size = UDim2.new(0, 64, 0, 26)
+resetBtn.Position = UDim2.new(1, -64, 0, 154)
+resetBtn.BackgroundColor3 = LM.btnA
 resetBtn.BorderSizePixel = 0
 resetBtn.Text = getText("reset")
 resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-resetBtn.TextSize = 13
+resetBtn.TextSize = 12
 resetBtn.Font = Enum.Font.GothamBold
 Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 10)
-
-local rShadow = Instance.new("Frame", resetBtn)
-rShadow.Size = UDim2.new(1, 0, 1, 4)
-rShadow.Position = UDim2.new(0, 0, 0, 3)
-rShadow.BackgroundColor3 = Color3.fromRGB(35, 52, 118)
-rShadow.BorderSizePixel = 0
-rShadow.ZIndex = resetBtn.ZIndex - 1
-Instance.new("UICorner", rShadow).CornerRadius = UDim.new(0, 10)
+local rShd = Instance.new("Frame", resetBtn)
+rShd.Size = UDim2.new(1, 0, 1, 4)
+rShd.Position = UDim2.new(0, 0, 0, 3)
+rShd.BackgroundColor3 = LM.btnShd
+rShd.BorderSizePixel = 0
+rShd.ZIndex = resetBtn.ZIndex - 1
+Instance.new("UICorner", rShd).CornerRadius = UDim.new(0, 10)
+local rGrad = Instance.new("UIGradient", resetBtn)
+rGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, LM.btnA), ColorSequenceKeypoint.new(1, LM.btnB)})
+rGrad.Rotation = 90
 
 local infoLabel = Instance.new("TextLabel", contentFrame)
-infoLabel.Size = UDim2.new(1, 0, 0, 34)
-infoLabel.Position = UDim2.new(0, 0, 0, 148)
+infoLabel.Size = UDim2.new(1, 0, 0, 32)
+infoLabel.Position = UDim2.new(0, 0, 0, 188)
 infoLabel.BackgroundTransparency = 1
-infoLabel.Text = isArabic and "اقفز مرتين قرب جدار لتنشيط القفزة" or "Jump twice near a wall to activate"
-infoLabel.TextColor3 = Color3.fromRGB(118, 138, 192)
+infoLabel.Text = "Jump twice near a wall to wallhop"
+infoLabel.TextColor3 = LM.infoTxt
 infoLabel.TextSize = 11
 infoLabel.Font = Enum.Font.Gotham
 infoLabel.TextWrapped = true
+infoLabel.TextXAlignment = Enum.TextXAlignment.Center
 
--- ============================================================
--- DRAGGING MAIN FRAME
--- ============================================================
+-- ===== DRAG =====
 local dragging, dragStart, startPos = false, nil, nil
-titleBar.InputBegan:Connect(function(inp)
-	if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-		dragging = true; dragStart = inp.Position; startPos = mainFrame.Position
+titleBar.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		dragging = true; dragStart = i.Position; startPos = mainFrame.Position
 	end
 end)
-titleBar.InputEnded:Connect(function(inp)
-	if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then dragging = false end
+titleBar.InputEnded:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
 end)
-UserInputService.InputChanged:Connect(function(inp)
-	if dragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-		local d = inp.Position - dragStart
-		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+UserInputService.InputChanged:Connect(function(i)
+	if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+		local d = i.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
 	end
 end)
 
--- ============================================================
--- THEME
--- ============================================================
+-- ===== THEME =====
 local function applyTheme()
+	local col = C()
+	mainStroke.Color = col.stroke
+	proxLabel.TextColor3 = col.proxTxt
+	infoLabel.TextColor3 = col.infoTxt
+	sliderTrack.BackgroundColor3 = col.trackBg
+	sliderFill.BackgroundColor3 = col.trackFill
+	sliderKnob.BackgroundColor3 = col.knobBg
+	sliderKnob.TextColor3 = col.trackFill
+	kStroke.Color = col.knobStroke
+	kShd.BackgroundColor3 = col.btnShd
+	resetBtn.BackgroundColor3 = col.btnA
+	rShd.BackgroundColor3 = col.btnShd
+	rGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, col.btnA), ColorSequenceKeypoint.new(1, col.btnB)})
+	titleGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, col.titleA), ColorSequenceKeypoint.new(1, col.titleB)})
+	titleFix.BackgroundColor3 = col.titleB
+	titleBar.BackgroundColor3 = col.titleA
+
 	if isDarkMode then
-		mainFrame.BackgroundColor3 = Color3.fromRGB(16, 20, 42)
-		mainStroke.Color = Color3.fromRGB(55, 75, 138)
-		proximityLabel.TextColor3 = Color3.fromRGB(135, 158, 222)
-		infoLabel.TextColor3 = Color3.fromRGB(75, 98, 158)
-		sliderTrack.BackgroundColor3 = Color3.fromRGB(32, 42, 78)
-		moonCut.BackgroundColor3 = Color3.fromRGB(40, 55, 145)
-		sunContainer.Visible = false
-		moonContainer.Visible = true
+		bgGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(16, 22, 48)), ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 14, 32))})
+		mainFrame.BackgroundColor3 = DM.bg
+		moonCut.BackgroundColor3 = col.titleB
+		sunHolder.Visible = false
+		moonHolder.Visible = true
+		shadow.BackgroundColor3 = DM.shadow
 	else
-		mainFrame.BackgroundColor3 = Color3.fromRGB(240, 245, 255)
-		mainStroke.Color = Color3.fromRGB(180, 190, 220)
-		proximityLabel.TextColor3 = Color3.fromRGB(60, 80, 160)
-		infoLabel.TextColor3 = Color3.fromRGB(118, 138, 192)
-		sliderTrack.BackgroundColor3 = Color3.fromRGB(198, 210, 238)
-		sunContainer.Visible = true
-		moonContainer.Visible = false
+		bgGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(240, 246, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(220, 232, 255))})
+		mainFrame.BackgroundColor3 = LM.bg
+		sunHolder.Visible = true
+		moonHolder.Visible = false
+		shadow.BackgroundColor3 = LM.shadow
+	end
+
+	-- update button not-enabled state colors
+	if not wallhopEnabled then
+		whGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, col.btnA), ColorSequenceKeypoint.new(1, col.btnB)})
+		whShd.BackgroundColor3 = col.btnShd
+	end
+	if not infiniteJumpEnabled then
+		ijGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, col.btnA), ColorSequenceKeypoint.new(1, col.btnB)})
+		ijShd.BackgroundColor3 = col.btnShd
 	end
 end
 
@@ -406,93 +498,104 @@ sunMoonBtn.MouseButton1Click:Connect(function()
 	applyTheme()
 end)
 
--- ============================================================
--- GLOBE ROTATION
--- ============================================================
+-- ===== GLOBE SPIN =====
 local globeSpinning = false
 globeBtn.MouseButton1Click:Connect(function()
 	if globeSpinning then return end
 	globeSpinning = true
 	isArabic = not isArabic
-	local t = TweenService:Create(globeContainer, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Rotation = globeContainer.Rotation + 360})
+	local t = TweenService:Create(globeHolder, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Rotation = globeHolder.Rotation + 360})
 	t:Play()
-	t.Completed:Connect(function()
-		globeContainer.Rotation = 0
-		globeSpinning = false
-	end)
-	wallhopLabelName.Text = getText("wallhop")
-	wallhopStatus.Text = wallhopEnabled and getText("enabled") or getText("disabled")
-	proximityLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
+	t.Completed:Connect(function() globeHolder.Rotation = 0; globeSpinning = false end)
+	whNameL.Text = getText("wallhop")
+	whStatusL.Text = wallhopEnabled and getText("enabled") or getText("disabled")
+	ijNameL.Text = getText("infjump")
+	ijStatusL.Text = infiniteJumpEnabled and getText("enabled") or getText("disabled")
+	proxLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
 	resetBtn.Text = getText("reset")
 	sliderKnob.Text = getText("drag")
-	infoLabel.Text = isArabic and "اقفز مرتين قرب جدار لتنشيط القفزة" or "Jump twice near a wall to activate"
+	infoLabel.Text = isArabic and "اقفز مرتين قرب جدار لتنشيط القفزة" or "Jump twice near a wall to wallhop"
 end)
 
--- ============================================================
--- WALLHOP TOGGLE
--- ============================================================
-local function updateWallhopUI()
-	if wallhopEnabled then
-		whGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(55, 185, 105)), ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 132, 68))})
-		whShadow.BackgroundColor3 = Color3.fromRGB(18, 88, 48)
-		wallhopStatus.Text = getText("enabled")
-		wallhopStatus.TextColor3 = Color3.fromRGB(178, 255, 198)
-		statusDot.BackgroundColor3 = Color3.fromRGB(72, 255, 128)
+-- ===== BUTTON TOGGLE HELPER =====
+local function setButtonState(enabled, grad, shd, statusL, dotFrame)
+	local col = C()
+	if enabled then
+		grad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(48, 188, 105)), ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 135, 68))})
+		shd.BackgroundColor3 = Color3.fromRGB(14, 88, 45)
+		statusL.TextColor3 = Color3.fromRGB(172, 255, 195)
+		statusL.Text = getText("enabled")
+		dotFrame.BackgroundColor3 = Color3.fromRGB(68, 255, 128)
 	else
-		whGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(95, 125, 215)), ColorSequenceKeypoint.new(1, Color3.fromRGB(50, 68, 158))})
-		whShadow.BackgroundColor3 = Color3.fromRGB(28, 42, 108)
-		wallhopStatus.Text = getText("disabled")
-		wallhopStatus.TextColor3 = Color3.fromRGB(175, 195, 255)
-		statusDot.BackgroundColor3 = Color3.fromRGB(140, 148, 185)
+		grad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, col.btnA), ColorSequenceKeypoint.new(1, col.btnB)})
+		shd.BackgroundColor3 = col.btnShd
+		statusL.TextColor3 = Color3.fromRGB(175, 195, 255)
+		statusL.Text = getText("disabled")
+		dotFrame.BackgroundColor3 = Color3.fromRGB(145, 155, 192)
 	end
 end
 
-wallhopBtn.MouseButton1Down:Connect(function() wallhopBtn.Position = UDim2.new(0,0,0,10) end)
+-- Wallhop button
+wallhopBtn.MouseButton1Down:Connect(function() wallhopBtn.Position = UDim2.new(0,0,0,6) end)
 wallhopBtn.MouseButton1Up:Connect(function()
-	wallhopBtn.Position = UDim2.new(0,0,0,6)
+	wallhopBtn.Position = UDim2.new(0,0,0,2)
 	wallhopEnabled = not wallhopEnabled
-	updateWallhopUI()
+	setButtonState(wallhopEnabled, whGrad, whShd, whStatusL, whDot)
 end)
-wallhopBtn.MouseLeave:Connect(function() wallhopBtn.Position = UDim2.new(0,0,0,6) end)
+wallhopBtn.MouseLeave:Connect(function() wallhopBtn.Position = UDim2.new(0,0,0,2) end)
 
--- ============================================================
--- SLIDER
--- ============================================================
+-- Inf Jump button
+infJumpBtn.MouseButton1Down:Connect(function() infJumpBtn.Position = UDim2.new(0,0,0,72) end)
+infJumpBtn.MouseButton1Up:Connect(function()
+	infJumpBtn.Position = UDim2.new(0,0,0,68)
+	infiniteJumpEnabled = not infiniteJumpEnabled
+	setButtonState(infiniteJumpEnabled, ijGrad, ijShd, ijStatusL, ijDot)
+end)
+infJumpBtn.MouseLeave:Connect(function() infJumpBtn.Position = UDim2.new(0,0,0,68) end)
+
+-- ===== SLIDER =====
 local sliderDragging = false
 sliderKnob.MouseButton1Down:Connect(function() sliderDragging = true end)
-UserInputService.InputEnded:Connect(function(inp)
-	if inp.UserInputType == Enum.UserInputType.MouseButton1 then sliderDragging = false end
+UserInputService.InputEnded:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then sliderDragging = false end
 end)
-UserInputService.InputChanged:Connect(function(inp)
-	if sliderDragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
+UserInputService.InputChanged:Connect(function(i)
+	if sliderDragging and i.UserInputType == Enum.UserInputType.MouseMovement then
 		local ax = sliderTrack.AbsolutePosition.X
 		local aw = sliderTrack.AbsoluteSize.X
-		local rel = math.clamp((inp.Position.X - ax) / aw, 0, 1)
+		local rel = math.clamp((i.Position.X - ax) / aw, 0, 1)
 		sliderFill.Size = UDim2.new(rel, 0, 1, 0)
-		sliderKnob.Position = UDim2.new(rel, -14, 0, 0)
+		sliderKnob.Position = UDim2.new(rel, -13, 0, 0)
 		proximityOffset = math.floor(rel * 200) / 100
-		proximityLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
+		proxLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
 	end
 end)
 
-resetBtn.MouseButton1Down:Connect(function() resetBtn.Position = UDim2.new(1,-60,0,114) end)
+resetBtn.MouseButton1Down:Connect(function() resetBtn.Position = UDim2.new(1,-64,0,157) end)
 resetBtn.MouseButton1Up:Connect(function()
-	resetBtn.Position = UDim2.new(1,-60,0,110)
+	resetBtn.Position = UDim2.new(1,-64,0,154)
 	proximityOffset = 1
 	sliderFill.Size = UDim2.new(0.5, 0, 1, 0)
-	sliderKnob.Position = UDim2.new(0.5, -14, 0, 0)
-	proximityLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
+	sliderKnob.Position = UDim2.new(0.5, -13, 0, 0)
+	proxLabel.Text = getText("proximity") .. ": " .. proximityOffset .. "m"
 end)
 
--- ============================================================
--- WALLHOP LOGIC
--- ============================================================
+-- ===== INFINITE JUMP =====
+UserInputService.JumpRequest:Connect(function()
+	if infiniteJumpEnabled then
+		if humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
+	end
+end)
+
+-- ===== WALLHOP LOGIC =====
 local function detectWall()
 	local rp = RaycastParams.new()
 	rp.FilterDescendantsInstances = {character}
 	rp.FilterType = Enum.RaycastFilterType.Exclude
 	for _, dir in ipairs({Vector3.new(1,0,0), Vector3.new(-1,0,0), Vector3.new(0,0,1), Vector3.new(0,0,-1)}) do
-		local res = workspace:Raycast(rootPart.Position, dir * (proximityOffset + 0.6), rp)
+		local res = workspace:Raycast(rootPart.Position, dir * (proximityOffset + 0.65), rp)
 		if res then return res.Normal end
 	end
 	return nil
@@ -504,7 +607,7 @@ local function smoothWallhop(wallNormal)
 	local startCF = rootPart.CFrame
 	local startYaw = math.atan2(startCF.LookVector.X, startCF.LookVector.Z)
 	local wallAngle = math.atan2(wallNormal.X, wallNormal.Z)
-	local targetYaw = wallAngle + math.pi / 2
+	local targetYaw = wallAngle + math.pi / 4  -- 45 degrees
 	local diff = targetYaw - startYaw
 	while diff > math.pi do diff -= 2*math.pi end
 	while diff < -math.pi do diff += 2*math.pi end
@@ -513,13 +616,14 @@ local function smoothWallhop(wallNormal)
 		rootPart.AssemblyLinearVelocity.X, 30, rootPart.AssemblyLinearVelocity.Z
 	)
 
-	local duration = 0.40
+	local duration = 0.55  -- slower, more human
 	local elapsed = 0
 	local conn
 	conn = RunService.Heartbeat:Connect(function(dt)
 		elapsed += dt
 		local t = math.min(elapsed / duration, 1)
-		local ease = t < 0.5 and 4*t*t*t or 1 - math.pow(-2*t+2, 3)/2
+		-- smooth ease: slow start, fast middle, slow end
+		local ease = t < 0.5 and 2*t*t or 1 - math.pow(-2*t+2, 2)/2
 		local yaw = startYaw + diff * ease
 		rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, yaw, 0)
 		if t >= 1 then conn:Disconnect(); isWallhopping = false end
@@ -550,6 +654,12 @@ player.CharacterAdded:Connect(function(nc)
 	rootPart = nc:WaitForChild("HumanoidRootPart")
 	isWallhopping = false; jumpCount = 0
 	humanoid.Jumping:Connect(function(j) if j then onJump() end end)
+	-- reconnect infinite jump for new character
+	UserInputService.JumpRequest:Connect(function()
+		if infiniteJumpEnabled and humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
+	end)
 end)
 
-print("ZYnTDA Loaded")
+print("zYnFlick Loaded")
